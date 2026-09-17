@@ -3,9 +3,12 @@
 #include <QtMath>
 
 WaveformModel::WaveformModel(int channelCount, int maxPoints)
-    : m_channels(qMax(0, channelCount))
-    , m_maxPoints(qMax(1, maxPoints))
+    : m_maxPoints(qMax(1, maxPoints))
+    , m_channels(qMax(0, channelCount))
+    , m_eventDetected(qMax(0, channelCount), false)
 {
+    for (ChannelBuffer &buffer : m_channels)
+        buffer.storage.resize(m_maxPoints);
 }
 
 int WaveformModel::channelCount() const
@@ -18,10 +21,54 @@ int WaveformModel::maxPoints() const
     return m_maxPoints;
 }
 
+void WaveformModel::setMaxPoints(int maxPoints)
+{
+    const int newMaximum = qMax(1, maxPoints);
+    if (newMaximum == m_maxPoints)
+        return;
+
+    for (int channel = 0; channel < m_channels.size(); ++channel)
+    {
+        const QVector<double> snapshot = samples(channel);
+        ChannelBuffer &buffer = m_channels[channel];
+        buffer.storage.resize(newMaximum);
+        buffer.start = 0;
+        buffer.size = qMin(snapshot.size(), newMaximum);
+        const int sourceStart = snapshot.size() - buffer.size;
+        for (int index = 0; index < buffer.size; ++index)
+            buffer.storage[index] = snapshot[sourceStart + index];
+        buffer.dirty = true;
+    }
+    m_maxPoints = newMaximum;
+}
+
+void WaveformModel::clear()
+{
+    for (ChannelBuffer &buffer : m_channels)
+    {
+        buffer.start = 0;
+        buffer.size = 0;
+        buffer.view.clear();
+        buffer.dirty = false;
+    }
+    m_eventDetected.fill(false);
+}
+
 const QVector<double> &WaveformModel::samples(int channel) const
 {
     static const QVector<double> empty;
-    return isValidChannel(channel) ? m_channels[channel] : empty;
+    if (!isValidChannel(channel))
+        return empty;
+
+    ChannelBuffer &buffer = m_channels[channel];
+    if (buffer.dirty)
+    {
+        buffer.view.resize(buffer.size);
+        for (int index = 0; index < buffer.size; ++index)
+            buffer.view[index] = buffer.storage[(buffer.start + index) % m_maxPoints];
+        buffer.dirty = false;
+    }
+    return buffer.view;
 }
 
 void WaveformModel::appendSamples(int channel, const QVector<double> &values)
@@ -29,11 +76,32 @@ void WaveformModel::appendSamples(int channel, const QVector<double> &values)
     if (!isValidChannel(channel) || values.isEmpty())
         return;
 
-    QVector<double> &buffer = m_channels[channel];
-    buffer.append(values);
-    const int overflow = buffer.size() - m_maxPoints;
-    if (overflow > 0)
-        buffer.remove(0, overflow);
+    ChannelBuffer &buffer = m_channels[channel];
+    if (values.size() >= m_maxPoints)
+    {
+        const int sourceStart = values.size() - m_maxPoints;
+        for (int index = 0; index < m_maxPoints; ++index)
+            buffer.storage[index] = values[sourceStart + index];
+        buffer.start = 0;
+        buffer.size = m_maxPoints;
+        buffer.dirty = true;
+        return;
+    }
+
+    for (double value : values)
+    {
+        if (buffer.size < m_maxPoints)
+        {
+            buffer.storage[(buffer.start + buffer.size) % m_maxPoints] = value;
+            ++buffer.size;
+        }
+        else
+        {
+            buffer.storage[buffer.start] = value;
+            buffer.start = (buffer.start + 1) % m_maxPoints;
+        }
+    }
+    buffer.dirty = true;
 }
 
 double WaveformModel::peak(int channel) const
@@ -54,6 +122,17 @@ double WaveformModel::rms(int channel) const
     for (double value : buffer)
         squareSum += value * value;
     return qSqrt(squareSum / buffer.size());
+}
+
+void WaveformModel::setEventDetected(int channel, bool detected)
+{
+    if (isValidChannel(channel))
+        m_eventDetected[channel] = detected;
+}
+
+bool WaveformModel::eventDetected(int channel) const
+{
+    return isValidChannel(channel) && m_eventDetected[channel];
 }
 
 bool WaveformModel::isValidChannel(int channel) const
