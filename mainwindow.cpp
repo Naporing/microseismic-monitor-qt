@@ -329,7 +329,7 @@ MainWindow::MainWindow(QWidget *parent)
         QLabel { color: #22303B; font-family: "Segoe UI Variable", "Microsoft YaHei UI"; }
         QLabel#eyebrow { color: #607687; font-family: "Cascadia Mono"; font-size: 9px; font-weight: 700; letter-spacing: 1px; }
         QLabel#pageTitle { color: #17212B; font-size: 20px; font-weight: 700; }
-        QLabel#subtitle { color: #697B89; font-size: 11px; }
+        QLabel#subtitle { color: #5D6F7C; font-size: 11px; }
         QLabel#caption { color: #5D6F7C; font-size: 10px; font-weight: 650; }
         QLabel#sectionTitle { color: #24333E; font-size: 13px; font-weight: 700; }
         QLabel#onlineBadge { color: #106846; background: #E4F3EB; border: 1px solid #A8D4BF; border-radius: 3px; padding: 6px 10px; font-weight: 700; }
@@ -380,7 +380,7 @@ void MainWindow::startAcquisition()
     startButton->setEnabled(false);
     stopButton->setEnabled(true);
     statusLabel->setText("●  采集中");
-    statusLabel->setStyleSheet("color: #48D597;");
+    statusLabel->setStyleSheet("color: #16805B;");
 }
 
 void MainWindow::stopAcquisition()
@@ -389,7 +389,7 @@ void MainWindow::stopAcquisition()
     startButton->setEnabled(true);
     stopButton->setEnabled(false);
     statusLabel->setText("●  已暂停");
-    statusLabel->setStyleSheet("color: #F39A45;");
+    statusLabel->setStyleSheet("color: #A84F0A;");
 }
 
 void MainWindow::generateData()

@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 
 #include <QComboBox>
+#include <QLabel>
 #include <QScrollArea>
 #include <QTest>
 #include <QTimer>
@@ -22,6 +23,7 @@ private slots:
     void detectsScheduledEventFromSamples();
     void detectsScheduledEventAtFiveHundredHertz();
     void exposesScientificInstrumentDesign();
+    void usesScientificStatusColors();
 };
 
 void MainWindowTest::containsWaveformListAndOneTimer()
@@ -183,6 +185,19 @@ void MainWindowTest::exposesScientificInstrumentDesign()
     QVERIFY(window.findChild<QWidget *>("instrumentHeader"));
     QVERIFY(window.findChild<QWidget *>("readoutStrip"));
     QVERIFY(window.findChild<QWidget *>("amplitudeScale"));
+    QVERIFY(window.styleSheet().contains("QLabel#subtitle { color: #5D6F7C;"));
+}
+
+void MainWindowTest::usesScientificStatusColors()
+{
+    MainWindow window;
+    auto *status = window.findChild<QLabel *>("statusValue");
+    QVERIFY(status);
+
+    QVERIFY(QMetaObject::invokeMethod(&window, "startAcquisition", Qt::DirectConnection));
+    QVERIFY(status->styleSheet().contains("#16805B"));
+    QVERIFY(QMetaObject::invokeMethod(&window, "stopAcquisition", Qt::DirectConnection));
+    QVERIFY(status->styleSheet().contains("#A84F0A"));
 }
 
 QTEST_MAIN(MainWindowTest)
