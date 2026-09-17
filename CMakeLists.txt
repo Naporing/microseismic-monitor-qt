@@ -14,6 +14,8 @@ qt_add_executable(Seismic_Waveforms_demo
     mainwindow.h
     eventlogic.cpp
     eventlogic.h
+    spectrumanalyzer.cpp
+    spectrumanalyzer.h
     waveformmodel.cpp
     waveformmodel.h
 )
@@ -39,6 +41,16 @@ install(SCRIPT ${deploy_script})
 
 if(BUILD_TESTING)
     find_package(Qt6 6.5 REQUIRED COMPONENTS Test)
+
+    add_executable(test_spectrumanalyzer
+        tests/test_spectrumanalyzer.cpp
+        spectrumanalyzer.cpp
+        spectrumanalyzer.h
+    )
+    target_include_directories(test_spectrumanalyzer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_spectrumanalyzer PRIVATE Qt::Core Qt::Test)
+    set_target_properties(test_spectrumanalyzer PROPERTIES WIN32_EXECUTABLE FALSE)
+    add_test(NAME spectrumanalyzer COMMAND test_spectrumanalyzer)
 
     add_executable(test_waveformmodel
         tests/test_waveformmodel.cpp
@@ -88,7 +100,7 @@ if(BUILD_TESTING)
     set_target_properties(test_mainwindow PROPERTIES WIN32_EXECUTABLE FALSE)
     add_test(NAME mainwindow COMMAND test_mainwindow)
 
-    set_tests_properties(waveformmodel eventlogic waveformwidgets mainwindow PROPERTIES
+    set_tests_properties(spectrumanalyzer waveformmodel eventlogic waveformwidgets mainwindow PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_PLUGIN_PATH=D:/develop/Qt/6.11.2/mingw_64/plugins"
         ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:D:/develop/Qt/Tools/mingw1310_64/bin;PATH=path_list_prepend:D:/develop/Qt/6.11.2/mingw_64/bin"
