@@ -46,16 +46,16 @@ void WaveformWidgetsTest::mapsAmplitudeToFiveColors_data()
     QTest::addColumn<double>("amplitude");
     QTest::addColumn<QColor>("expected");
 
-    QTest::newRow("zero") << 0.0 << QColor("#48D597");
-    QTest::newRow("green upper") << 0.249 << QColor("#48D597");
-    QTest::newRow("cyan lower") << 0.25 << QColor("#39C5E8");
-    QTest::newRow("cyan upper") << 0.499 << QColor("#39C5E8");
-    QTest::newRow("yellow lower") << 0.50 << QColor("#E8C84A");
-    QTest::newRow("yellow upper") << 0.749 << QColor("#E8C84A");
-    QTest::newRow("orange lower") << 0.75 << QColor("#F39A45");
-    QTest::newRow("orange upper") << 0.999 << QColor("#F39A45");
-    QTest::newRow("red lower") << 1.00 << QColor("#F05B68");
-    QTest::newRow("absolute amplitude") << -1.20 << QColor("#F05B68");
+    QTest::newRow("zero") << 0.0 << QColor("#16805B");
+    QTest::newRow("green upper") << 0.249 << QColor("#16805B");
+    QTest::newRow("cyan lower") << 0.25 << QColor("#087EA4");
+    QTest::newRow("cyan upper") << 0.499 << QColor("#087EA4");
+    QTest::newRow("yellow lower") << 0.50 << QColor("#B78016");
+    QTest::newRow("yellow upper") << 0.749 << QColor("#B78016");
+    QTest::newRow("orange lower") << 0.75 << QColor("#D96C18");
+    QTest::newRow("orange upper") << 0.999 << QColor("#D96C18");
+    QTest::newRow("red lower") << 1.00 << QColor("#C9363E");
+    QTest::newRow("absolute amplitude") << -1.20 << QColor("#C9363E");
 }
 
 void WaveformWidgetsTest::mapsAmplitudeToFiveColors()
@@ -86,7 +86,7 @@ void WaveformWidgetsTest::preservesHighSpikeWhenDownsampling()
         for (int x = 0; x < image.width(); ++x)
         {
             const QColor color = image.pixelColor(x, y);
-            if (color.red() > 220 && color.green() < 130 && color.blue() < 150)
+            if (color.red() > 185 && color.green() < 90 && color.blue() < 100)
             {
                 foundRed = true;
                 break;
@@ -114,7 +114,7 @@ void WaveformWidgetsTest::keepsPartialBufferAtRightEdge()
         for (int x = 0; x < image.width(); ++x)
         {
             const QColor color = image.pixelColor(x, y);
-            if (color.green() > 150 && color.red() < 120 && color.blue() < 170)
+            if (color.green() > 110 && color.red() < 80 && color.blue() < 130)
                 firstGreenX = qMin(firstGreenX, x);
         }
     }

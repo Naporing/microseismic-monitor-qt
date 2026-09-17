@@ -4,6 +4,7 @@
 #include <QScrollArea>
 #include <QTest>
 #include <QTimer>
+#include <QVariant>
 #include <QtMath>
 
 class MainWindowTest : public QObject
@@ -20,6 +21,7 @@ private slots:
     void changingSampleRateKeepsNoiseStateContinuous();
     void detectsScheduledEventFromSamples();
     void detectsScheduledEventAtFiveHundredHertz();
+    void exposesScientificInstrumentDesign();
 };
 
 void MainWindowTest::containsWaveformListAndOneTimer()
@@ -170,6 +172,17 @@ void MainWindowTest::detectsScheduledEventAtFiveHundredHertz()
 
     QCOMPARE(window.model()->maxPoints(), 2500);
     QVERIFY(window.model()->eventDetected(eventChannel));
+}
+
+void MainWindowTest::exposesScientificInstrumentDesign()
+{
+    MainWindow window;
+
+    QCOMPARE(window.centralWidget()->property("designVariant").toString(), QString("B"));
+    QCOMPARE(window.windowTitle(), QString("微震阵列实时监测 · 科研仪器台"));
+    QVERIFY(window.findChild<QWidget *>("instrumentHeader"));
+    QVERIFY(window.findChild<QWidget *>("readoutStrip"));
+    QVERIFY(window.findChild<QWidget *>("amplitudeScale"));
 }
 
 QTEST_MAIN(MainWindowTest)

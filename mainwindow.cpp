@@ -62,32 +62,31 @@ QColor WaveformListWidget::colorForAmplitude(double amplitude)
 {
     const double level = qAbs(amplitude);
     if (level < 0.25)
-        return QColor("#48D597");
+        return QColor("#16805B");
     if (level < 0.50)
-        return QColor("#39C5E8");
+        return QColor("#087EA4");
     if (level < 0.75)
-        return QColor("#E8C84A");
+        return QColor("#B78016");
     if (level < 1.00)
-        return QColor("#F39A45");
-    return QColor("#F05B68");
+        return QColor("#D96C18");
+    return QColor("#C9363E");
 }
 
 int WaveformListWidget::channelAtY(int y) const
 {
-    if (!m_model || y < 0)
+    if (!m_model || y < 0 || y >= height())
         return -1;
-    const double heightPerChannel = rowHeight();
-    if (heightPerChannel <= 0.0)
+    if (height() <= 0 || m_model->channelCount() <= 0)
         return -1;
-    const int channel = static_cast<int>(y / heightPerChannel);
-    return channel < m_model->channelCount() ? channel : -1;
+    return static_cast<int>(static_cast<qint64>(y) * m_model->channelCount()
+                            / height());
 }
 
 void WaveformListWidget::paintEvent(QPaintEvent *event)
 {
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
-    painter.fillRect(event->rect(), QColor("#07111D"));
+    painter.fillRect(event->rect(), QColor("#F7F9FA"));
     if (!m_model)
         return;
 
@@ -104,28 +103,44 @@ void WaveformListWidget::paintEvent(QPaintEvent *event)
                              channel * heightPerChannel,
                              width(),
                              heightPerChannel);
-        painter.fillRect(rowRect, QColor(channel % 2 ? "#08131F" : "#0A1725"));
-        painter.setPen(QPen(QColor("#15283A"), 1.0));
+        painter.fillRect(rowRect, QColor(channel % 2 ? "#F3F6F8" : "#FBFCFD"));
+        painter.setPen(QPen(QColor("#DDE4E9"), 1.0));
         painter.drawLine(rowRect.bottomLeft(), rowRect.bottomRight());
 
-        const QRectF labelArea = rowRect.adjusted(16.0, 0.0, -width() + 104.0, 0.0);
-        painter.setPen(QColor("#C9D7E5"));
-        painter.setFont(QFont("Segoe UI", 7, QFont::DemiBold));
+        if (channel > 0 && channel % 10 == 0)
+        {
+            painter.setPen(QPen(QColor("#9DADB8"), 1.0));
+            painter.drawLine(rowRect.topLeft(), rowRect.topRight());
+        }
+
+        if (m_model->eventDetected(channel))
+        {
+            painter.fillRect(QRectF(4.0, rowRect.top() + 2.0, 5.0,
+                                    qMax(3.0, rowRect.height() - 4.0)),
+                             QColor("#C9363E"));
+            painter.setPen(QPen(QColor("#7F1D24"), 1.0));
+            painter.drawRect(QRectF(3.5, rowRect.top() + 1.5, 6.0,
+                                    qMax(4.0, rowRect.height() - 3.0)));
+        }
+
+        const QRectF labelArea = rowRect.adjusted(15.0, 0.0, -width() + 100.0, 0.0);
+        painter.setPen(QColor("#344451"));
+        painter.setFont(QFont("Cascadia Mono", 7, QFont::DemiBold));
         painter.drawText(labelArea,
                          Qt::AlignLeft | Qt::AlignVCenter,
                          QString("CH-%1").arg(channel + 1, 3, 10, QLatin1Char('0')));
 
-        const QRectF plot(112.0,
+        const QRectF plot(108.0,
                           rowRect.top() + 1.0,
-                          qMax(2.0, width() - 128.0),
+                          qMax(2.0, width() - 122.0),
                           qMax(2.0, heightPerChannel - 2.0));
-        painter.setPen(QPen(QColor("#1C3044"), 1.0));
-        for (int division = 0; division <= 8; ++division)
+        painter.setPen(QPen(QColor("#E1E7EB"), 1.0));
+        for (int division = 0; division <= 10; ++division)
         {
-            const double x = plot.left() + plot.width() * division / 8.0;
+            const double x = plot.left() + plot.width() * division / 10.0;
             painter.drawLine(QPointF(x, plot.top()), QPointF(x, plot.bottom()));
         }
-        painter.setPen(QPen(QColor("#36506A"), 1.0));
+        painter.setPen(QPen(QColor("#AAB8C3"), 1.0));
         painter.drawLine(QPointF(plot.left(), plot.center().y()),
                          QPointF(plot.right(), plot.center().y()));
 
@@ -192,41 +207,45 @@ MainWindow::MainWindow(QWidget *parent)
     , eventDetector(100)
     , signalGenerator(100, 16092026)
 {
-    setWindowTitle("微震阵列实时监测 · B 版");
+    setWindowTitle("微震阵列实时监测 · 科研仪器台");
     resize(1440, 900);
     setMinimumSize(1080, 680);
 
     auto *central = new QWidget(this);
     central->setObjectName("appRoot");
+    central->setProperty("designVariant", "B");
     setCentralWidget(central);
     auto *pageLayout = new QVBoxLayout(central);
-    pageLayout->setContentsMargins(20, 16, 20, 20);
-    pageLayout->setSpacing(12);
+    pageLayout->setContentsMargins(16, 12, 16, 16);
+    pageLayout->setSpacing(8);
 
-    auto *headerLayout = new QHBoxLayout;
+    auto *instrumentHeader = new QWidget;
+    instrumentHeader->setObjectName("instrumentHeader");
+    auto *headerLayout = new QHBoxLayout(instrumentHeader);
+    headerLayout->setContentsMargins(16, 8, 14, 8);
     auto *headingLayout = new QVBoxLayout;
-    headingLayout->setSpacing(2);
-    auto *eyebrow = new QLabel("MICROSEISMIC ARRAY  /  100-CHANNEL LIVE MONITOR");
+    headingLayout->setSpacing(0);
+    auto *eyebrow = new QLabel("MICROSEISMIC LAB  /  100-CHANNEL RECORDER");
     eyebrow->setObjectName("eyebrow");
-    auto *heading = new QLabel("100 路实时波形监测");
+    auto *heading = new QLabel("阵列信号采集仪");
     heading->setObjectName("pageTitle");
-    auto *subtitle = new QLabel("统一采集时钟 · 五级振幅着色 · 5 秒滚动窗口");
+    auto *subtitle = new QLabel("实时记录  ·  统一时钟  ·  5.0 秒观测窗");
     subtitle->setObjectName("subtitle");
     headingLayout->addWidget(eyebrow);
     headingLayout->addWidget(heading);
     headingLayout->addWidget(subtitle);
     headerLayout->addLayout(headingLayout);
     headerLayout->addStretch();
-    auto *onlineCountLabel = new QLabel("● 100 / 100 在线");
+    auto *onlineCountLabel = new QLabel("●  设备在线  100 / 100");
     onlineCountLabel->setObjectName("onlineBadge");
-    headerLayout->addWidget(onlineCountLabel, 0, Qt::AlignBottom);
-    pageLayout->addLayout(headerLayout);
+    headerLayout->addWidget(onlineCountLabel, 0, Qt::AlignVCenter);
+    pageLayout->addWidget(instrumentHeader);
 
     auto *controlPanel = new QWidget;
-    controlPanel->setObjectName("panel");
+    controlPanel->setObjectName("readoutStrip");
     auto *controlLayout = new QHBoxLayout(controlPanel);
-    controlLayout->setContentsMargins(14, 10, 14, 10);
-    controlLayout->setSpacing(10);
+    controlLayout->setContentsMargins(12, 7, 12, 7);
+    controlLayout->setSpacing(8);
     auto *sampleRateCaption = new QLabel("采样率");
     sampleRateCaption->setObjectName("caption");
     controlLayout->addWidget(sampleRateCaption);
@@ -247,13 +266,25 @@ MainWindow::MainWindow(QWidget *parent)
     statusLabel = new QLabel("●  待机");
     statusLabel->setObjectName("statusValue");
     controlLayout->addWidget(statusLabel);
+    auto *windowReadout = new QLabel("窗口  5.0 s");
+    windowReadout->setObjectName("readout");
+    controlLayout->addWidget(windowReadout);
     controlLayout->addStretch();
-    for (const QString &legend : {QString("● 低"), QString("● 较低"), QString("● 中高"), QString("● 较高"), QString("● 高")})
+    auto *amplitudeScale = new QWidget;
+    amplitudeScale->setObjectName("amplitudeScale");
+    auto *scaleLayout = new QHBoxLayout(amplitudeScale);
+    scaleLayout->setContentsMargins(7, 3, 7, 3);
+    scaleLayout->setSpacing(8);
+    auto *scaleCaption = new QLabel("振幅级别");
+    scaleCaption->setObjectName("caption");
+    scaleLayout->addWidget(scaleCaption);
+    for (const QString &legend : {QString("■ 低"), QString("■ 较低"), QString("■ 中等"), QString("■ 较高"), QString("■ 高")})
     {
         auto *label = new QLabel(legend);
         label->setObjectName("legend");
-        controlLayout->addWidget(label);
+        scaleLayout->addWidget(label);
     }
+    controlLayout->addWidget(amplitudeScale);
     auto *dataCaption = new QLabel("累计采样点");
     dataCaption->setObjectName("caption");
     controlLayout->addSpacing(8);
@@ -264,14 +295,14 @@ MainWindow::MainWindow(QWidget *parent)
     pageLayout->addWidget(controlPanel);
 
     auto *waveformPanel = new QWidget;
-    waveformPanel->setObjectName("panel");
+    waveformPanel->setObjectName("instrumentStage");
     auto *waveformLayout = new QVBoxLayout(waveformPanel);
-    waveformLayout->setContentsMargins(10, 10, 10, 10);
-    waveformLayout->setSpacing(8);
+    waveformLayout->setContentsMargins(9, 8, 9, 9);
+    waveformLayout->setSpacing(6);
     auto *waveformHeader = new QHBoxLayout;
-    auto *waveformTitle = new QLabel("实时通道波形");
+    auto *waveformTitle = new QLabel("实时通道记录");
     waveformTitle->setObjectName("sectionTitle");
-    auto *listBadge = new QLabel("100 CHANNELS  ·  50 / VIEW");
+    auto *listBadge = new QLabel("通道编号   ·   时间轴 5.0 s   ·   当前显示 50 路");
     listBadge->setObjectName("subtleBadge");
     waveformHeader->addWidget(waveformTitle);
     waveformHeader->addStretch();
@@ -290,37 +321,41 @@ MainWindow::MainWindow(QWidget *parent)
     pageLayout->addWidget(waveformPanel, 1);
 
     setStyleSheet(R"(
-        QWidget#appRoot { background: #07111D; color: #D7E3EF; }
-        QWidget#panel { background: #0D1A29; border: 1px solid #1B2E42; border-radius: 10px; }
-        QLabel { color: #D7E3EF; font-family: "Segoe UI", "Microsoft YaHei UI"; }
-        QLabel#eyebrow { color: #6FA7D8; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
-        QLabel#pageTitle { color: #EAF2F8; font-size: 25px; font-weight: 700; }
-        QLabel#subtitle, QLabel#caption { color: #71869B; }
-        QLabel#subtitle { font-size: 12px; }
-        QLabel#caption { font-size: 10px; font-weight: 600; }
-        QLabel#sectionTitle { color: #E3EDF6; font-size: 15px; font-weight: 700; }
-        QLabel#onlineBadge { color: #48D597; background: #102638; border: 1px solid #244057; border-radius: 13px; padding: 6px 12px; font-weight: 600; }
-        QLabel#subtleBadge { color: #82A9C9; background: #122437; border-radius: 10px; padding: 4px 9px; font-size: 9px; font-weight: 700; }
-        QLabel#statusValue { color: #7F93A7; font-weight: 600; }
-        QLabel#dataCount { color: #EAF2F8; min-width: 92px; font-size: 15px; font-weight: 700; }
-        QLabel#legend { color: #8AA0B5; font-size: 10px; font-weight: 600; }
-        QComboBox { color: #D7E3EF; background: #101F30; border: 1px solid #24384D; border-radius: 5px; padding: 7px 9px; }
+        QWidget#appRoot { background: #E9EEF2; color: #17212B; }
+        QWidget#instrumentHeader { background: #F8FAFB; border: 1px solid #C9D3DB; border-radius: 3px; }
+        QWidget#readoutStrip { background: #F4F7F9; border: 1px solid #C7D2DA; border-radius: 3px; }
+        QWidget#instrumentStage { background: #F8FAFB; border: 1px solid #C7D2DA; border-radius: 3px; }
+        QWidget#amplitudeScale { background: #FFFFFF; border: 1px solid #D2DAE0; border-radius: 2px; }
+        QLabel { color: #22303B; font-family: "Segoe UI Variable", "Microsoft YaHei UI"; }
+        QLabel#eyebrow { color: #607687; font-family: "Cascadia Mono"; font-size: 9px; font-weight: 700; letter-spacing: 1px; }
+        QLabel#pageTitle { color: #17212B; font-size: 20px; font-weight: 700; }
+        QLabel#subtitle { color: #697B89; font-size: 11px; }
+        QLabel#caption { color: #5D6F7C; font-size: 10px; font-weight: 650; }
+        QLabel#sectionTitle { color: #24333E; font-size: 13px; font-weight: 700; }
+        QLabel#onlineBadge { color: #106846; background: #E4F3EB; border: 1px solid #A8D4BF; border-radius: 3px; padding: 6px 10px; font-weight: 700; }
+        QLabel#subtleBadge { color: #60717E; font-family: "Cascadia Mono"; font-size: 9px; font-weight: 650; }
+        QLabel#statusValue { color: #566A78; font-weight: 700; }
+        QLabel#readout { color: #314552; border-left: 1px solid #CAD4DB; padding: 3px 10px; font-family: "Cascadia Mono"; font-weight: 650; }
+        QLabel#dataCount { color: #17212B; min-width: 92px; font-family: "Cascadia Mono"; font-size: 14px; font-weight: 700; }
+        QLabel#legend { font-family: "Cascadia Mono"; font-size: 9px; font-weight: 700; }
+        QComboBox { color: #253642; background: #FFFFFF; border: 1px solid #AEBBC5; border-radius: 3px; padding: 6px 8px; }
         QComboBox::drop-down { border: 0; width: 22px; }
-        QComboBox QAbstractItemView { color: #D7E3EF; background: #101F30; selection-background-color: #315D83; }
-        QPushButton { color: #C4D2DF; background: #132538; border: 1px solid #294158; border-radius: 5px; padding: 9px; font-weight: 600; }
-        QPushButton:hover { background: #183149; }
-        QPushButton:disabled { color: #52677A; background: #0D1925; border-color: #192B3C; }
-        QPushButton#primaryButton { color: #F3F8FC; background: #3D78A8; border-color: #4B88B8; }
-        QPushButton#primaryButton:hover { background: #4A88B8; }
-        QFrame#divider { color: #294158; }
-        QScrollArea#monitorScroll { background: #07111D; border: 1px solid #1B2E42; border-radius: 6px; }
-        QScrollBar:vertical { background: #091521; width: 11px; margin: 0; }
-        QScrollBar::handle:vertical { background: #36516A; border-radius: 5px; min-height: 36px; }
+        QComboBox QAbstractItemView { color: #253642; background: #FFFFFF; selection-background-color: #CBE3ED; }
+        QPushButton { color: #314552; background: #FFFFFF; border: 1px solid #AEBBC5; border-radius: 3px; padding: 7px 11px; font-weight: 650; }
+        QPushButton:hover { background: #EDF4F7; border-color: #718C9D; }
+        QPushButton:focus { border: 2px solid #176B87; }
+        QPushButton:disabled { color: #9AA8B2; background: #EDF1F3; border-color: #D5DDE2; }
+        QPushButton#primaryButton { color: #FFFFFF; background: #176B87; border-color: #12566D; }
+        QPushButton#primaryButton:hover { background: #1E7D9B; }
+        QFrame#divider { color: #BAC6CE; }
+        QScrollArea#monitorScroll { background: #F7F9FA; border: 1px solid #C7D2DA; border-radius: 2px; }
+        QScrollBar:vertical { background: #E7ECEF; width: 10px; margin: 0; }
+        QScrollBar::handle:vertical { background: #98A8B4; border-radius: 2px; min-height: 36px; }
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
     )");
 
     const QList<QLabel *> legendLabels = controlPanel->findChildren<QLabel *>("legend");
-    const QStringList legendColors = {"#48D597", "#39C5E8", "#E8C84A", "#F39A45", "#F05B68"};
+    const QStringList legendColors = {"#16805B", "#087EA4", "#B78016", "#D96C18", "#C9363E"};
     for (int index = 0; index < legendLabels.size(); ++index)
         legendLabels[index]->setStyleSheet(QString("color: %1;").arg(legendColors[index]));
 
