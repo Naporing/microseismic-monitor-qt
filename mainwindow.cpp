@@ -8,10 +8,12 @@
 #include <QMouseEvent>
 #include <QPaintEvent>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QScrollArea>
 #include <QSizePolicy>
+#include <QSplitter>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QtMath>
@@ -264,8 +266,151 @@ void WaveformListWidget::mouseDoubleClickEvent(QMouseEvent *event)
         setSelectedChannel(channel);
         emit channelSelected(channel);
         emit channelActivated(channel);
+        event->accept();
+        return;
     }
     QWidget::mouseDoubleClickEvent(event);
+}
+
+ChannelAnalysisPlot::ChannelAnalysisPlot(const WaveformModel *model, QWidget *parent)
+    : QWidget(parent)
+    , m_model(model)
+{
+    setMinimumHeight(180);
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+}
+
+void ChannelAnalysisPlot::setChannel(int channel)
+{
+    if (m_channel == channel)
+        return;
+    m_channel = channel;
+    update();
+}
+
+void ChannelAnalysisPlot::setSpectrum(const SpectrumResult &spectrum)
+{
+    m_spectrum = spectrum;
+    update();
+}
+
+void ChannelAnalysisPlot::paintEvent(QPaintEvent *event)
+{
+    Q_UNUSED(event)
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.fillRect(rect(), QColor("#FBFCFD"));
+
+    const double plotHeight = qMax(42.0, (height() - 70.0) / 2.0);
+    const QRectF timePlot(52.0, 22.0, qMax(40.0, width() - 68.0), plotHeight);
+    const QRectF spectrumPlot(52.0,
+                              timePlot.bottom() + 28.0,
+                              qMax(40.0, width() - 68.0),
+                              plotHeight);
+    auto drawGrid = [&painter](const QRectF &plot) {
+        painter.fillRect(plot, QColor("#F7F9FA"));
+        painter.setPen(QPen(QColor("#DFE6EA"), 1.0));
+        for (int division = 0; division <= 10; ++division)
+        {
+            const double x = plot.left() + plot.width() * division / 10.0;
+            painter.drawLine(QPointF(x, plot.top()), QPointF(x, plot.bottom()));
+        }
+        for (int division = 0; division <= 4; ++division)
+        {
+            const double y = plot.top() + plot.height() * division / 4.0;
+            painter.drawLine(QPointF(plot.left(), y), QPointF(plot.right(), y));
+        }
+        painter.setPen(QPen(QColor("#A8B7C1"), 1.0));
+        painter.drawRect(plot);
+    };
+
+    painter.setFont(QFont("Segoe UI Variable", 9, QFont::DemiBold));
+    painter.setPen(QColor("#344451"));
+    painter.drawText(QRectF(52.0, 2.0, timePlot.width(), 18.0),
+                     Qt::AlignLeft | Qt::AlignVCenter,
+                     "时域波形  ·  最近 5.0 s");
+    painter.drawText(QRectF(52.0, timePlot.bottom() + 8.0, spectrumPlot.width(), 18.0),
+                     Qt::AlignLeft | Qt::AlignVCenter,
+                     "FFT 频谱  ·  0–200 Hz / -60–0 dB");
+    drawGrid(timePlot);
+    drawGrid(spectrumPlot);
+
+    const QVector<double> &samples = m_model ? m_model->samples(m_channel)
+                                              : QVector<double>();
+    if (samples.size() >= 2)
+    {
+        painter.save();
+        painter.setClipRect(timePlot);
+        const int columns = qMax(2, static_cast<int>(timePlot.width()));
+        QPointF previous;
+        double previousPeak = 0.0;
+        bool hasPrevious = false;
+        for (int column = 0; column < columns; ++column)
+        {
+            const int begin = column * samples.size() / columns;
+            const int end = qMax(begin + 1,
+                                 (column + 1) * samples.size() / columns);
+            double minimum = samples[begin];
+            double maximum = samples[begin];
+            double peak = qAbs(samples[begin]);
+            for (int index = begin + 1; index < end; ++index)
+            {
+                minimum = qMin(minimum, samples[index]);
+                maximum = qMax(maximum, samples[index]);
+                peak = qMax(peak, qAbs(samples[index]));
+            }
+            const double x = timePlot.left()
+                             + (column + 0.5) * timePlot.width() / columns;
+            const double scale = timePlot.height() * 0.42;
+            painter.setPen(QPen(WaveformListWidget::colorForAmplitude(peak), 1.2));
+            painter.drawLine(QPointF(x, timePlot.center().y() - maximum * scale),
+                             QPointF(x, timePlot.center().y() - minimum * scale));
+            const QPointF current(x,
+                                  timePlot.center().y()
+                                      - samples[end - 1] * scale);
+            if (hasPrevious)
+            {
+                painter.setPen(QPen(WaveformListWidget::colorForAmplitude(
+                                        qMax(previousPeak, peak)),
+                                    1.2));
+                painter.drawLine(previous, current);
+            }
+            previous = current;
+            previousPeak = peak;
+            hasPrevious = true;
+        }
+        painter.restore();
+    }
+
+    if (m_spectrum.isValid())
+    {
+        QPainterPath spectrumPath;
+        for (int index = 0; index < m_spectrum.frequencies.size(); ++index)
+        {
+            const double x = spectrumPlot.left()
+                             + m_spectrum.frequencies[index] / 200.0
+                                   * spectrumPlot.width();
+            const double y = spectrumPlot.bottom()
+                             - (m_spectrum.magnitudesDb[index] + 60.0) / 60.0
+                                   * spectrumPlot.height();
+            if (index == 0)
+                spectrumPath.moveTo(x, y);
+            else
+                spectrumPath.lineTo(x, y);
+        }
+        painter.setClipRect(spectrumPlot);
+        painter.setPen(QPen(QColor("#176B87"), 1.6));
+        painter.drawPath(spectrumPath);
+        painter.setClipping(false);
+    }
+    else
+    {
+        painter.setPen(QColor("#687B88"));
+        painter.setFont(QFont("Segoe UI Variable", 9));
+        painter.drawText(spectrumPlot,
+                         Qt::AlignCenter,
+                         "正在积累频谱数据（至少 256 点）");
+    }
 }
 
 MainWindow::MainWindow(QWidget *parent)
@@ -411,13 +556,53 @@ MainWindow::MainWindow(QWidget *parent)
     waveformList->setObjectName("waveformListWidget");
     scrollArea->setWidget(waveformList);
     waveformLayout->addWidget(scrollArea, 1);
-    pageLayout->addWidget(waveformPanel, 1);
+
+    monitorSplitter = new QSplitter(Qt::Vertical);
+    monitorSplitter->setObjectName("monitorSplitter");
+    monitorSplitter->setChildrenCollapsible(false);
+    monitorSplitter->setHandleWidth(6);
+    monitorSplitter->addWidget(waveformPanel);
+
+    channelDetailPanel = new QWidget;
+    channelDetailPanel->setObjectName("channelDetailPanel");
+    channelDetailPanel->setMinimumHeight(220);
+    auto *detailLayout = new QVBoxLayout(channelDetailPanel);
+    detailLayout->setContentsMargins(10, 8, 10, 8);
+    detailLayout->setSpacing(6);
+    auto *detailHeader = new QHBoxLayout;
+    detailChannelLabel = new QLabel("CH---  单通道分析");
+    detailChannelLabel->setObjectName("detailChannelLabel");
+    detailHeader->addWidget(detailChannelLabel);
+    detailHeader->addSpacing(12);
+    detailPeakLabel = new QLabel("峰值  --");
+    detailPeakLabel->setObjectName("detailMetric");
+    detailHeader->addWidget(detailPeakLabel);
+    detailRmsLabel = new QLabel("RMS  --");
+    detailRmsLabel->setObjectName("detailMetric");
+    detailHeader->addWidget(detailRmsLabel);
+    detailFrequencyLabel = new QLabel("主频  --");
+    detailFrequencyLabel->setObjectName("detailFrequencyLabel");
+    detailHeader->addWidget(detailFrequencyLabel);
+    detailHeader->addStretch();
+    auto *detailCloseButton = new QPushButton("收起详情");
+    detailCloseButton->setObjectName("detailCloseButton");
+    detailHeader->addWidget(detailCloseButton);
+    detailLayout->addLayout(detailHeader);
+    channelAnalysisPlot = new ChannelAnalysisPlot(&waveformModel);
+    channelAnalysisPlot->setObjectName("channelAnalysisPlot");
+    detailLayout->addWidget(channelAnalysisPlot, 1);
+    monitorSplitter->addWidget(channelDetailPanel);
+    monitorSplitter->setStretchFactor(0, 1);
+    monitorSplitter->setStretchFactor(1, 0);
+    channelDetailPanel->hide();
+    pageLayout->addWidget(monitorSplitter, 1);
 
     setStyleSheet(R"(
         QWidget#appRoot { background: #E9EEF2; color: #17212B; }
         QWidget#instrumentHeader { background: #F8FAFB; border: 1px solid #C9D3DB; border-radius: 3px; }
         QWidget#readoutStrip { background: #F4F7F9; border: 1px solid #C7D2DA; border-radius: 3px; }
         QWidget#instrumentStage { background: #F8FAFB; border: 1px solid #C7D2DA; border-radius: 3px; }
+        QWidget#channelDetailPanel { background: #F8FAFB; border: 1px solid #AFC1CC; border-radius: 3px; }
         QWidget#amplitudeScale { background: #FFFFFF; border: 1px solid #D2DAE0; border-radius: 2px; }
         QLabel { color: #22303B; font-family: "Segoe UI Variable", "Microsoft YaHei UI"; }
         QLabel#eyebrow { color: #607687; font-family: "Cascadia Mono"; font-size: 9px; font-weight: 700; letter-spacing: 1px; }
@@ -425,6 +610,8 @@ MainWindow::MainWindow(QWidget *parent)
         QLabel#subtitle { color: #5D6F7C; font-size: 11px; }
         QLabel#caption { color: #5D6F7C; font-size: 10px; font-weight: 650; }
         QLabel#sectionTitle { color: #24333E; font-size: 13px; font-weight: 700; }
+        QLabel#detailChannelLabel { color: #1D3544; font-family: "Cascadia Mono"; font-size: 12px; font-weight: 750; }
+        QLabel#detailMetric, QLabel#detailFrequencyLabel { color: #4E6472; font-family: "Cascadia Mono"; font-size: 10px; font-weight: 650; }
         QLabel#onlineBadge { color: #106846; background: #E4F3EB; border: 1px solid #A8D4BF; border-radius: 3px; padding: 6px 10px; font-weight: 700; }
         QLabel#subtleBadge { color: #60717E; font-family: "Cascadia Mono"; font-size: 9px; font-weight: 650; }
         QLabel#statusValue { color: #566A78; font-weight: 700; }
@@ -445,6 +632,7 @@ MainWindow::MainWindow(QWidget *parent)
         QScrollBar:vertical { background: #E7ECEF; width: 10px; margin: 0; }
         QScrollBar::handle:vertical { background: #98A8B4; border-radius: 2px; min-height: 36px; }
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+        QSplitter#monitorSplitter::handle { background: #D5DEE4; border: 1px solid #C0CDD5; }
     )");
 
     const QList<QLabel *> legendLabels = controlPanel->findChildren<QLabel *>("legend");
@@ -461,6 +649,9 @@ MainWindow::MainWindow(QWidget *parent)
     connect(signalModeBox, &QComboBox::currentIndexChanged, this, &MainWindow::changeSignalMode);
     connect(frequencyPresetBox, &QComboBox::currentIndexChanged, this, &MainWindow::changeFrequencyPreset);
     connect(customFrequencySpin, &QDoubleSpinBox::valueChanged, this, &MainWindow::changeCustomFrequency);
+    connect(waveformList, &WaveformListWidget::channelSelected, this, &MainWindow::selectChannel);
+    connect(waveformList, &WaveformListWidget::channelActivated, this, &MainWindow::openChannelDetail);
+    connect(detailCloseButton, &QPushButton::clicked, this, &MainWindow::closeChannelDetail);
 }
 
 MainWindow::~MainWindow() = default;
@@ -522,8 +713,11 @@ void MainWindow::generateData()
     elapsedSeconds += static_cast<double>(pointsPerUpdate) / sampleRate;
     totalDataCount += static_cast<long long>(pointsPerUpdate) * waveformModel.channelCount();
     dataCountLabel->setText(QLocale().toString(totalDataCount));
-    if (++updateCount % 2 == 0)
+    ++updateCount;
+    if (updateCount % 2 == 0)
         waveformList->update();
+    if (channelDetailPanel->isVisible() && updateCount % 5 == 0)
+        refreshChannelDetail();
 }
 
 void MainWindow::changeSampleRate(int index)
@@ -533,6 +727,8 @@ void MainWindow::changeSampleRate(int index)
     waveformModel.setMaxPoints(sampleRate * DISPLAY_WINDOW_SECONDS);
     eventDetector.reset();
     waveformList->update();
+    if (channelDetailPanel->isVisible())
+        refreshChannelDetail();
 }
 
 void MainWindow::changeSignalMode(int index)
@@ -581,4 +777,65 @@ void MainWindow::resetSimulation()
     signalGenerator.reset();
     elapsedSeconds = 0.0;
     waveformList->update();
+    if (channelDetailPanel->isVisible())
+        refreshChannelDetail();
+}
+
+void MainWindow::selectChannel(int channel)
+{
+    if (channel < 0 || channel >= waveformModel.channelCount())
+        return;
+    detailChannel = channel;
+    if (channelDetailPanel->isVisible())
+        refreshChannelDetail();
+}
+
+void MainWindow::openChannelDetail(int channel)
+{
+    selectChannel(channel);
+    if (detailChannel < 0)
+        return;
+
+    channelDetailPanel->show();
+    waveformList->setVisibleRows(34);
+    const int totalHeight = qMax(1, monitorSplitter->height());
+    monitorSplitter->setSizes({qRound(totalHeight * 0.68),
+                               qRound(totalHeight * 0.32)});
+    refreshChannelDetail();
+}
+
+void MainWindow::closeChannelDetail()
+{
+    channelDetailPanel->hide();
+    waveformList->setVisibleRows(50);
+}
+
+void MainWindow::refreshChannelDetail()
+{
+    if (detailChannel < 0 || detailChannel >= waveformModel.channelCount())
+        return;
+
+    detailSpectrum = SpectrumAnalyzer::analyze(waveformModel.samples(detailChannel),
+                                               sampleRate);
+    channelAnalysisPlot->setChannel(detailChannel);
+    channelAnalysisPlot->setSpectrum(detailSpectrum);
+    detailChannelLabel->setText(QString("CH-%1  单通道分析")
+                                    .arg(detailChannel + 1,
+                                         3,
+                                         10,
+                                         QLatin1Char('0')));
+    detailPeakLabel->setText(QString("峰值  %1")
+                                 .arg(waveformModel.peak(detailChannel),
+                                      0,
+                                      'f',
+                                      3));
+    detailRmsLabel->setText(QString("RMS  %1")
+                                .arg(waveformModel.rms(detailChannel),
+                                     0,
+                                     'f',
+                                     3));
+    detailFrequencyLabel->setText(
+        detailSpectrum.isValid()
+            ? QString("主频  %1 Hz").arg(detailSpectrum.peakFrequencyHz, 0, 'f', 1)
+            : QString("主频  --"));
 }

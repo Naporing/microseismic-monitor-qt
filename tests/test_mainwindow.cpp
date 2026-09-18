@@ -2,8 +2,11 @@
 
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QImage>
 #include <QLabel>
+#include <QPushButton>
 #include <QScrollArea>
+#include <QSplitter>
 #include <QTest>
 #include <QTimer>
 #include <QVariant>
@@ -28,6 +31,8 @@ private slots:
     void detectsScheduledEventAtFiveHundredHertz();
     void exposesScientificInstrumentDesign();
     void usesScientificStatusColors();
+    void opensSwitchesAndClosesDetailDrawer();
+    void reportsSelectedChannelSpectrum();
 };
 
 void MainWindowTest::containsWaveformListAndOneTimer()
@@ -284,6 +289,104 @@ void MainWindowTest::usesScientificStatusColors()
     QVERIFY(status->styleSheet().contains("#16805B"));
     QVERIFY(QMetaObject::invokeMethod(&window, "stopAcquisition", Qt::DirectConnection));
     QVERIFY(status->styleSheet().contains("#A84F0A"));
+}
+
+void MainWindowTest::opensSwitchesAndClosesDetailDrawer()
+{
+    MainWindow window;
+    window.show();
+    QTest::qWait(20);
+    auto *splitter = window.findChild<QSplitter *>("monitorSplitter");
+    auto *panel = window.findChild<QWidget *>("channelDetailPanel");
+    auto *list = window.findChild<WaveformListWidget *>("waveformListWidget");
+    auto *channelLabel = window.findChild<QLabel *>("detailChannelLabel");
+    auto *frequencyLabel = window.findChild<QLabel *>("detailFrequencyLabel");
+    auto *closeButton = window.findChild<QPushButton *>("detailCloseButton");
+
+    QVERIFY(splitter);
+    QVERIFY(panel);
+    QVERIFY(list);
+    QVERIFY(channelLabel);
+    QVERIFY(frequencyLabel);
+    QVERIFY(closeButton);
+    QVERIFY(panel->isHidden());
+    const int timerCount = window.findChildren<QTimer *>().size();
+
+    const int channel36Y = qFloor((36.5) * list->rowHeight());
+    QTest::mouseDClick(list,
+                       Qt::LeftButton,
+                       Qt::NoModifier,
+                       QPoint(200, channel36Y));
+    QTRY_VERIFY(panel->isVisible());
+    QCOMPARE(list->selectedChannel(), 36);
+    QCOMPARE(list->visibleRows(), 34);
+    QVERIFY(channelLabel->text().contains("CH-037"));
+    QVERIFY(frequencyLabel->text().contains("--"));
+
+    const int channel8Y = qFloor((8.5) * list->rowHeight());
+    QTest::mouseClick(list,
+                      Qt::LeftButton,
+                      Qt::NoModifier,
+                      QPoint(200, channel8Y));
+    QCOMPARE(list->selectedChannel(), 8);
+    QVERIFY(channelLabel->text().contains("CH-009"));
+
+    QTest::mouseClick(closeButton, Qt::LeftButton);
+    QVERIFY(panel->isHidden());
+    QCOMPARE(list->visibleRows(), 50);
+    QCOMPARE(window.findChildren<QTimer *>().size(), timerCount);
+}
+
+void MainWindowTest::reportsSelectedChannelSpectrum()
+{
+    MainWindow window;
+    auto *modeBox = window.findChild<QComboBox *>("signalModeBox");
+    auto *frequencyBox = window.findChild<QComboBox *>("frequencyPresetBox");
+    auto *list = window.findChild<WaveformListWidget *>("waveformListWidget");
+    auto *panel = window.findChild<QWidget *>("channelDetailPanel");
+    auto *frequencyLabel = window.findChild<QLabel *>("detailFrequencyLabel");
+    auto *plot = window.findChild<QWidget *>("channelAnalysisPlot");
+    QVERIFY(modeBox);
+    QVERIFY(frequencyBox);
+    QVERIFY(list);
+    QVERIFY(panel);
+    QVERIFY(frequencyLabel);
+    QVERIFY(plot);
+
+    modeBox->setCurrentIndex(1);
+    frequencyBox->setCurrentIndex(1);
+    for (int tick = 0; tick < 251; ++tick)
+        QVERIFY(QMetaObject::invokeMethod(&window, "generateData", Qt::DirectConnection));
+
+    window.show();
+    QTest::qWait(20);
+    QTest::mouseDClick(list, Qt::LeftButton, Qt::NoModifier, QPoint(200, 6));
+    QTRY_VERIFY(panel->isVisible());
+    QTRY_VERIFY(frequencyLabel->text().contains("30"));
+    QVERIFY(plot->height() >= 180);
+    QVERIFY(plot->width() >= 700);
+
+    QImage image(plot->size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    plot->render(&image);
+    int timeTracePixels = 0;
+    int spectrumTracePixels = 0;
+    for (int y = 0; y < image.height(); ++y)
+    {
+        for (int x = 0; x < image.width(); ++x)
+        {
+            const QColor color = image.pixelColor(x, y);
+            if (color.red() < 80 && color.green() > 70 && color.blue() > 90)
+            {
+                if (y < image.height() / 2)
+                    ++timeTracePixels;
+                else
+                    ++spectrumTracePixels;
+            }
+        }
+    }
+    QVERIFY(timeTracePixels > 10);
+    QVERIFY(spectrumTracePixels > 10);
 }
 
 QTEST_MAIN(MainWindowTest)

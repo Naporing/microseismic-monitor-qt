@@ -6,6 +6,7 @@
 #include <QVector>
 
 #include "eventlogic.h"
+#include "spectrumanalyzer.h"
 #include "waveformmodel.h"
 
 class QTimer;
@@ -16,6 +17,7 @@ class QLabel;
 class QPaintEvent;
 class QMouseEvent;
 class QColor;
+class QSplitter;
 
 
 class WaveformListWidget : public QWidget
@@ -51,6 +53,27 @@ private:
 };
 
 
+class ChannelAnalysisPlot : public QWidget
+{
+    Q_OBJECT
+
+public:
+    explicit ChannelAnalysisPlot(const WaveformModel *model,
+                                 QWidget *parent = nullptr);
+
+    void setChannel(int channel);
+    void setSpectrum(const SpectrumResult &spectrum);
+
+protected:
+    void paintEvent(QPaintEvent *event) override;
+
+private:
+    const WaveformModel *m_model;
+    int m_channel = -1;
+    SpectrumResult m_spectrum;
+};
+
+
 // ========================
 // 主窗口
 // ========================
@@ -72,6 +95,9 @@ private slots:
     void changeSignalMode(int index);
     void changeFrequencyPreset(int index);
     void changeCustomFrequency(double frequencyHz);
+    void selectChannel(int channel);
+    void openChannelDetail(int channel);
+    void closeChannelDetail();
 
 private:
     enum class SignalMode
@@ -81,12 +107,16 @@ private:
     };
 
     void resetSimulation();
+    void refreshChannelDetail();
 
     WaveformModel waveformModel;
     DemoEventScheduler eventScheduler;
     ChannelEventDetector eventDetector;
     SeismicSignalGenerator signalGenerator;
     WaveformListWidget *waveformList;
+    QSplitter *monitorSplitter;
+    QWidget *channelDetailPanel;
+    ChannelAnalysisPlot *channelAnalysisPlot;
 
     QTimer *timer;
 
@@ -100,10 +130,16 @@ private:
 
     QLabel *statusLabel;
     QLabel *dataCountLabel;
+    QLabel *detailChannelLabel;
+    QLabel *detailPeakLabel;
+    QLabel *detailRmsLabel;
+    QLabel *detailFrequencyLabel;
 
     int sampleRate = 1000;
     SignalMode signalMode = SignalMode::Seismic;
     double sineFrequencyHz = 20.0;
+    int detailChannel = -1;
+    SpectrumResult detailSpectrum;
     int updateCount = 0;
     long long totalDataCount = 0;
     double elapsedSeconds = 0.0;

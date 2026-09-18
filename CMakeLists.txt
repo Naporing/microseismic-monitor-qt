@@ -78,6 +78,8 @@ if(BUILD_TESTING)
         mainwindow.h
         eventlogic.cpp
         eventlogic.h
+        spectrumanalyzer.cpp
+        spectrumanalyzer.h
         waveformmodel.cpp
         waveformmodel.h
     )
@@ -92,6 +94,8 @@ if(BUILD_TESTING)
         mainwindow.h
         eventlogic.cpp
         eventlogic.h
+        spectrumanalyzer.cpp
+        spectrumanalyzer.h
         waveformmodel.cpp
         waveformmodel.h
     )
