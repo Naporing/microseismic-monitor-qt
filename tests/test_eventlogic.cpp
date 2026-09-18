@@ -10,8 +10,13 @@ class EventLogicTest : public QObject
 private slots:
     void backgroundIsRepeatableButNotPeriodic();
     void channelsHaveDistinctBoundedBackgrounds();
+    void sineSignalIsContinuousAndAccurate_data();
+    void sineSignalIsContinuousAndAccurate();
+    void sineSignalIsRepeatableAndChannelSpecific();
+    void sineSignalRejectsInvalidInput();
     void schedulerIsRepeatableAndSpatial();
     void impulsePropagatesWithDelayAndAttenuation();
+    void eventContainsPWaveSWaveAndVariedCoda();
     void eventSustainsTwoDetectionBatches();
     void detectorConfirmsAndRecovers();
 };
@@ -57,6 +62,74 @@ void EventLogicTest::channelsHaveDistinctBoundedBackgrounds()
     QVERIFY(channel0 != channel1);
     QVERIFY(peak > 0.05);
     QVERIFY(peak < 0.50);
+}
+
+void EventLogicTest::sineSignalIsContinuousAndAccurate_data()
+{
+    QTest::addColumn<double>("frequencyHz");
+
+    QTest::newRow("20 Hz") << 20.0;
+    QTest::newRow("30 Hz") << 30.0;
+    QTest::newRow("80 Hz") << 80.0;
+    QTest::newRow("custom 137.5 Hz") << 137.5;
+}
+
+void EventLogicTest::sineSignalIsContinuousAndAccurate()
+{
+    QFETCH(double, frequencyHz);
+    constexpr int sampleRate = 1000;
+    constexpr int sampleCount = sampleRate * 5;
+    SeismicSignalGenerator generator(100, 16092026);
+
+    int risingCrossings = 0;
+    double previous = generator.sineSample(0, 0.0, sampleRate, frequencyHz);
+    QVector<double> halfSecondEnergy(10, 0.0);
+    for (int sample = 1; sample < sampleCount; ++sample)
+    {
+        const double time = static_cast<double>(sample) / sampleRate;
+        const double value = generator.sineSample(0, time, sampleRate, frequencyHz);
+        if (previous <= 0.0 && value > 0.0)
+            ++risingCrossings;
+        halfSecondEnergy[sample / 500] += value * value;
+        previous = value;
+    }
+
+    const double measuredFrequency = risingCrossings / 5.0;
+    QVERIFY(qAbs(measuredFrequency - frequencyHz) < 0.5);
+    for (double energy : halfSecondEnergy)
+        QVERIFY(energy > 5.0);
+}
+
+void EventLogicTest::sineSignalIsRepeatableAndChannelSpecific()
+{
+    SeismicSignalGenerator first(2, 16092026);
+    SeismicSignalGenerator second(2, 16092026);
+    QVector<double> channel0;
+    QVector<double> channel1;
+
+    for (int sample = 0; sample < 1000; ++sample)
+    {
+        const double time = static_cast<double>(sample) / 1000.0;
+        const double first0 = first.sineSample(0, time, 1000, 30.0);
+        const double first1 = first.sineSample(1, time, 1000, 30.0);
+        QCOMPARE(first0, second.sineSample(0, time, 1000, 30.0));
+        QCOMPARE(first1, second.sineSample(1, time, 1000, 30.0));
+        channel0.append(first0);
+        channel1.append(first1);
+    }
+
+    QVERIFY(channel0 != channel1);
+}
+
+void EventLogicTest::sineSignalRejectsInvalidInput()
+{
+    SeismicSignalGenerator generator(2, 16092026);
+
+    QCOMPARE(generator.sineSample(-1, 0.0, 1000, 30.0), 0.0);
+    QCOMPARE(generator.sineSample(2, 0.0, 1000, 30.0), 0.0);
+    QCOMPARE(generator.sineSample(0, 0.0, 0, 30.0), 0.0);
+    QCOMPARE(generator.sineSample(0, 0.0, 1000, 0.0), 0.0);
+    QCOMPARE(generator.sineSample(0, 0.0, 1000, 201.0), 0.0);
 }
 
 void EventLogicTest::schedulerIsRepeatableAndSpatial()
@@ -127,13 +200,58 @@ void EventLogicTest::impulsePropagatesWithDelayAndAttenuation()
     QVERIFY(sourcePeak > 1.0);
     QVERIFY(farPeak > 0.5);
     QVERIFY(sourcePeak > farPeak);
-    QVERIFY(qAbs(scheduler.impulse(source, sourceArrival + 0.319)) < 0.03);
-    QCOMPARE(scheduler.impulse(source, sourceArrival + 0.320), 0.0);
+    double codaPeak = 0.0;
+    for (int sample = 600; sample < 1000; ++sample)
+        codaPeak = qMax(codaPeak,
+                        qAbs(scheduler.impulse(source,
+                                               sourceArrival + sample / 1000.0)));
+    QVERIFY(codaPeak > 0.03);
+    QCOMPARE(scheduler.impulse(source, sourceArrival + 1.6), 0.0);
 
     int nonTarget = 0;
     while (targets.contains(nonTarget))
         ++nonTarget;
     QCOMPARE(scheduler.impulse(nonTarget, scheduler.eventStartTime(eventIndex) + 0.1), 0.0);
+}
+
+void EventLogicTest::eventContainsPWaveSWaveAndVariedCoda()
+{
+    DemoEventScheduler scheduler(100, 20260916);
+    QVector<QVector<double>> eventShapes;
+
+    for (int eventIndex = 0; eventIndex < 2; ++eventIndex)
+    {
+        const int source = scheduler.sourceChannelForEvent(eventIndex);
+        const double arrival = scheduler.arrivalTime(source, eventIndex);
+        QVector<double> shape;
+        double pPeak = 0.0;
+        double sPeak = 0.0;
+        double earlyCodaPeak = 0.0;
+        double lateCodaPeak = 0.0;
+        for (int sample = 0; sample < 1400; ++sample)
+        {
+            const double offset = sample / 1000.0;
+            const double value = scheduler.impulse(source, arrival + offset);
+            shape.append(value);
+            if (offset < 0.13)
+                pPeak = qMax(pPeak, qAbs(value));
+            else if (offset < 0.45)
+                sPeak = qMax(sPeak, qAbs(value));
+            else if (offset < 0.80)
+                earlyCodaPeak = qMax(earlyCodaPeak, qAbs(value));
+            else if (offset < 1.20)
+                lateCodaPeak = qMax(lateCodaPeak, qAbs(value));
+        }
+
+        QVERIFY(pPeak > 0.10);
+        QVERIFY(sPeak > pPeak);
+        QVERIFY(earlyCodaPeak > 0.05);
+        QVERIFY(lateCodaPeak > 0.01);
+        QVERIFY(earlyCodaPeak > lateCodaPeak);
+        eventShapes.append(shape);
+    }
+
+    QVERIFY(eventShapes[0] != eventShapes[1]);
 }
 
 void EventLogicTest::eventSustainsTwoDetectionBatches()

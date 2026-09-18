@@ -10,6 +10,10 @@ public:
     explicit SeismicSignalGenerator(int channelCount, quint32 seed = 16092026);
 
     double sample(int channel, double timeSeconds, int sampleRate);
+    double sineSample(int channel,
+                      double timeSeconds,
+                      int sampleRate,
+                      double frequencyHz);
     void reset();
 
 private:

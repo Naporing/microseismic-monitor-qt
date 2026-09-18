@@ -6,7 +6,6 @@ namespace {
 
 constexpr double PI = 3.14159265358979323846;
 constexpr double EVENT_SLOT_SECONDS = 5.0;
-constexpr double EVENT_DURATION_SECONDS = 0.32;
 constexpr double ARRIVAL_DELAY_PER_SENSOR_SECONDS = 0.018;
 
 quint32 mixBits(quint32 value)
@@ -75,6 +74,25 @@ double SeismicSignalGenerator::sample(int channel, double timeSeconds, int sampl
                                  + 0.022 * highNoise
                                  + 0.55 * m_lowNoise[channel]);
     return m_gain[channel] * (stochastic + environmental + hum);
+}
+
+double SeismicSignalGenerator::sineSample(int channel,
+                                          double timeSeconds,
+                                          int sampleRate,
+                                          double frequencyHz)
+{
+    if (!isValidChannel(channel) || sampleRate <= 0
+        || frequencyHz < 1.0 || frequencyHz > 200.0)
+        return 0.0;
+
+    const double phase = m_phase[channel];
+    const double modulation = 1.0
+                              + 0.025 * qSin(2.0 * PI * 0.17 * timeSeconds
+                                             + phase * 0.31);
+    const double carrier = 0.38 * m_gain[channel] * modulation
+                           * qSin(2.0 * PI * frequencyHz * timeSeconds + phase);
+    const double noise = 0.012 * m_noiseScale[channel] * nextNoise(channel);
+    return carrier + noise;
 }
 
 void SeismicSignalGenerator::reset()
@@ -182,7 +200,11 @@ double DemoEventScheduler::impulse(int channel, double timeSeconds) const
         return 0.0;
 
     const double localTime = timeSeconds - arrivalTime(channel, eventIndex);
-    if (localTime < 0.0 || localTime >= EVENT_DURATION_SECONDS)
+    const double eventVariation = unitValue(m_seed
+                                            + static_cast<quint32>(eventIndex + 1)
+                                                  * 668265263U);
+    const double eventDuration = 1.25 + 0.20 * eventVariation;
+    if (localTime < 0.0 || localTime >= eventDuration)
         return 0.0;
 
     const double distance = distanceFromSource(channel, eventIndex);
@@ -191,20 +213,51 @@ double DemoEventScheduler::impulse(int channel, double timeSeconds) const
                                                + static_cast<quint32>(eventIndex + 1)
                                                      * 3266489917U);
     const double attenuation = qExp(-0.32 * distance);
-    const double rickerArgument = PI * 18.0 * (localTime - 0.028);
+    const double pFrequency = 22.0 + 10.0 * eventVariation;
+    const double sFrequency = 8.0
+                              + 6.0 * unitValue(m_seed
+                                                + static_cast<quint32>(eventIndex + 1)
+                                                      * 374761393U);
+    const double sDelay = 0.15
+                          + 0.06 * unitValue(m_seed
+                                             + static_cast<quint32>(eventIndex + 1)
+                                                   * 2246822519U);
+    const double eventPhase = 2.0 * PI
+                              * unitValue(m_seed
+                                          + static_cast<quint32>(eventIndex + 1)
+                                                * 3266489917U);
+
+    const double rickerArgument = PI * pFrequency * (localTime - 0.040);
     const double square = rickerArgument * rickerArgument;
-    const double firstArrival = (1.0 - 2.0 * square) * qExp(-square);
-    const double ringTime = localTime - 0.045;
-    const double ring = ringTime > 0.0
-                            ? 0.90 * qSin(2.0 * PI * 18.0 * ringTime)
-                                  * qExp(-3.0 * ringTime)
-                            : 0.0;
-    const double tailWindow = localTime > 0.20
+    const double pWave = (1.0 - 2.0 * square) * qExp(-square);
+
+    const double sTime = localTime - sDelay;
+    const double sEnvelope = sTime > 0.0
+                                 ? (1.0 - qExp(-28.0 * sTime))
+                                       * qExp(-2.8 * sTime)
+                                 : 0.0;
+    const double sWave = sEnvelope
+                         * (qSin(2.0 * PI * sFrequency * sTime + eventPhase)
+                            + 0.28
+                                  * qSin(2.0 * PI * sFrequency * 1.63 * sTime
+                                         + eventPhase * 0.41));
+
+    const double codaTime = localTime - sDelay - 0.20;
+    const double codaEnvelope = codaTime > 0.0 ? qExp(-2.4 * codaTime) : 0.0;
+    const double coda = codaEnvelope
+                        * (0.34 * qSin(2.0 * PI * sFrequency * 0.73 * codaTime
+                                      + eventPhase * 0.27)
+                           + 0.18
+                                 * qSin(2.0 * PI * sFrequency * 1.37 * codaTime
+                                        + eventPhase * 0.82));
+    const double taperStart = eventDuration - 0.18;
+    const double tailWindow = localTime > taperStart
                                   ? 0.5 * (1.0
-                                           + qCos(PI * (localTime - 0.20)
-                                                  / (EVENT_DURATION_SECONDS - 0.20)))
+                                           + qCos(PI * (localTime - taperStart)
+                                                  / (eventDuration - taperStart)))
                                   : 1.0;
-    return strength * attenuation * (0.78 * firstArrival + ring) * tailWindow;
+    return strength * attenuation * (0.42 * pWave + 1.05 * sWave + coda)
+           * tailWindow;
 }
 
 ChannelEventDetector::ChannelEventDetector(int channelCount,
