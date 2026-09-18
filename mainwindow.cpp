@@ -5,6 +5,7 @@
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMouseEvent>
 #include <QPaintEvent>
 #include <QPainter>
 #include <QPushButton>
@@ -56,7 +57,26 @@ void WaveformListWidget::setViewportHeight(int height)
     if (!m_model || height <= 0)
         return;
 
-    setFixedHeight(qCeil(height * m_model->channelCount() / 50.0));
+    m_viewportHeight = height;
+    setFixedHeight(qCeil(height * m_model->channelCount()
+                         / static_cast<double>(m_visibleRows)));
+}
+
+int WaveformListWidget::visibleRows() const
+{
+    return m_visibleRows;
+}
+
+void WaveformListWidget::setVisibleRows(int rows)
+{
+    if (!m_model || m_model->channelCount() <= 0)
+        return;
+
+    const int boundedRows = qBound(1, rows, m_model->channelCount());
+    if (boundedRows == m_visibleRows)
+        return;
+    m_visibleRows = boundedRows;
+    setViewportHeight(m_viewportHeight);
 }
 
 QColor WaveformListWidget::colorForAmplitude(double amplitude)
@@ -83,6 +103,21 @@ int WaveformListWidget::channelAtY(int y) const
                             / height());
 }
 
+int WaveformListWidget::selectedChannel() const
+{
+    return m_selectedChannel;
+}
+
+void WaveformListWidget::setSelectedChannel(int channel)
+{
+    if (!m_model || channel < -1 || channel >= m_model->channelCount()
+        || channel == m_selectedChannel)
+        return;
+
+    m_selectedChannel = channel;
+    update();
+}
+
 void WaveformListWidget::paintEvent(QPaintEvent *event)
 {
     QPainter painter(this);
@@ -104,7 +139,16 @@ void WaveformListWidget::paintEvent(QPaintEvent *event)
                              channel * heightPerChannel,
                              width(),
                              heightPerChannel);
-        painter.fillRect(rowRect, QColor(channel % 2 ? "#F3F6F8" : "#FBFCFD"));
+        const bool selected = channel == m_selectedChannel;
+        painter.fillRect(rowRect,
+                         selected
+                             ? QColor("#E2F1F6")
+                             : QColor(channel % 2 ? "#F3F6F8" : "#FBFCFD"));
+        if (selected)
+        {
+            painter.setPen(QPen(QColor("#2B7896"), 1.0));
+            painter.drawRect(rowRect.adjusted(0.5, 0.5, -0.5, -0.5));
+        }
         painter.setPen(QPen(QColor("#DDE4E9"), 1.0));
         painter.drawLine(rowRect.bottomLeft(), rowRect.bottomRight());
 
@@ -199,6 +243,29 @@ void WaveformListWidget::paintEvent(QPaintEvent *event)
         }
         painter.restore();
     }
+}
+
+void WaveformListWidget::mousePressEvent(QMouseEvent *event)
+{
+    const int channel = channelAtY(qFloor(event->position().y()));
+    if (event->button() == Qt::LeftButton && channel >= 0)
+    {
+        setSelectedChannel(channel);
+        emit channelSelected(channel);
+    }
+    QWidget::mousePressEvent(event);
+}
+
+void WaveformListWidget::mouseDoubleClickEvent(QMouseEvent *event)
+{
+    const int channel = channelAtY(qFloor(event->position().y()));
+    if (event->button() == Qt::LeftButton && channel >= 0)
+    {
+        setSelectedChannel(channel);
+        emit channelSelected(channel);
+        emit channelActivated(channel);
+    }
+    QWidget::mouseDoubleClickEvent(event);
 }
 
 MainWindow::MainWindow(QWidget *parent)

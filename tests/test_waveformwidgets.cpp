@@ -2,6 +2,7 @@
 
 #include <QColor>
 #include <QImage>
+#include <QSignalSpy>
 #include <QTest>
 
 class WaveformWidgetsTest : public QObject
@@ -15,6 +16,9 @@ private slots:
     void mapsAmplitudeToFiveColors();
     void preservesHighSpikeWhenDownsampling();
     void keepsPartialBufferAtRightEdge();
+    void selectsAndActivatesClickedChannel();
+    void paintsSelectedChannelDistinctly();
+    void changesVisibleRowCountForDrawer();
 };
 
 void WaveformWidgetsTest::mapsVerticalPositionToChannel()
@@ -119,6 +123,58 @@ void WaveformWidgetsTest::keepsPartialBufferAtRightEdge()
         }
     }
     QVERIFY(firstGreenX > 700);
+}
+
+void WaveformWidgetsTest::selectsAndActivatesClickedChannel()
+{
+    WaveformModel model(100, 800);
+    WaveformListWidget list(&model);
+    list.setViewportHeight(650);
+    list.resize(760, list.height());
+    QSignalSpy selectedSpy(&list, &WaveformListWidget::channelSelected);
+    QSignalSpy activatedSpy(&list, &WaveformListWidget::channelActivated);
+
+    QTest::mouseClick(&list, Qt::LeftButton, Qt::NoModifier, QPoint(200, 36 * 13 + 6));
+    QCOMPARE(list.selectedChannel(), 36);
+    QCOMPARE(selectedSpy.count(), 1);
+    QCOMPARE(selectedSpy.first().first().toInt(), 36);
+
+    QTest::mouseDClick(&list, Qt::LeftButton, Qt::NoModifier, QPoint(200, 42 * 13 + 6));
+    QCOMPARE(list.selectedChannel(), 42);
+    QCOMPARE(activatedSpy.count(), 1);
+    QCOMPARE(activatedSpy.first().first().toInt(), 42);
+}
+
+void WaveformWidgetsTest::paintsSelectedChannelDistinctly()
+{
+    WaveformModel model(100, 800);
+    WaveformListWidget list(&model);
+    list.setViewportHeight(650);
+    list.resize(760, list.height());
+    list.setSelectedChannel(3);
+
+    QImage image(760, list.height(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    list.render(&image);
+
+    QCOMPARE(image.pixelColor(104, 3 * 13 + 6), QColor("#E2F1F6"));
+}
+
+void WaveformWidgetsTest::changesVisibleRowCountForDrawer()
+{
+    WaveformModel model(100, 800);
+    WaveformListWidget list(&model);
+
+    list.setVisibleRows(34);
+    list.setViewportHeight(680);
+    QCOMPARE(list.visibleRows(), 34);
+    QCOMPARE(list.height(), 2000);
+    QCOMPARE(list.channelAtY(679), 33);
+    QCOMPARE(list.channelAtY(680), 34);
+
+    list.setVisibleRows(50);
+    QCOMPARE(list.height(), 1360);
+    QCOMPARE(list.channelAtY(679), 49);
 }
 
 QTEST_MAIN(WaveformWidgetsTest)

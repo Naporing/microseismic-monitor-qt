@@ -14,6 +14,7 @@ class QComboBox;
 class QDoubleSpinBox;
 class QLabel;
 class QPaintEvent;
+class QMouseEvent;
 class QColor;
 
 
@@ -26,14 +27,27 @@ public:
 
     double rowHeight() const;
     void setViewportHeight(int height);
+    int visibleRows() const;
+    void setVisibleRows(int rows);
     static QColor colorForAmplitude(double amplitude);
     int channelAtY(int y) const;
+    int selectedChannel() const;
+    void setSelectedChannel(int channel);
+
+signals:
+    void channelSelected(int channel);
+    void channelActivated(int channel);
 
 protected:
     void paintEvent(QPaintEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseDoubleClickEvent(QMouseEvent *event) override;
 
 private:
     WaveformModel *m_model;
+    int m_visibleRows = 50;
+    int m_viewportHeight = 650;
+    int m_selectedChannel = -1;
 };
 
 
