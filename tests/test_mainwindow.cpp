@@ -1,8 +1,9 @@
 #include "mainwindow.h"
 
+#include <QApplication>
 #include <QComboBox>
-#include <QDoubleSpinBox>
 #include <QImage>
+#include <QInputDialog>
 #include <QLabel>
 #include <QPushButton>
 #include <QScrollArea>
@@ -11,6 +12,19 @@
 #include <QTimer>
 #include <QVariant>
 #include <QtMath>
+
+namespace {
+
+bool activateComboItem(QComboBox *comboBox, int index)
+{
+    comboBox->setCurrentIndex(index);
+    return QMetaObject::invokeMethod(comboBox,
+                                     "activated",
+                                     Qt::DirectConnection,
+                                     Q_ARG(int, index));
+}
+
+}
 
 class MainWindowTest : public QObject
 {
@@ -27,6 +41,7 @@ private slots:
     void exposesSimulationModeControls();
     void routesSinePresetToAllChannels();
     void routesCustomSineFrequency();
+    void cancelingCustomFrequencyKeepsPreviousSelection();
     void detectsScheduledEventFromSamples();
     void detectsScheduledEventAtFiveHundredHertz();
     void exposesScientificInstrumentDesign();
@@ -150,11 +165,11 @@ void MainWindowTest::exposesSimulationModeControls()
     MainWindow window;
     auto *modeBox = window.findChild<QComboBox *>("signalModeBox");
     auto *frequencyBox = window.findChild<QComboBox *>("frequencyPresetBox");
-    auto *customFrequency = window.findChild<QDoubleSpinBox *>("customFrequencySpin");
+    auto *customFrequency = window.findChild<QWidget *>("customFrequencySpin");
 
     QVERIFY(modeBox);
     QVERIFY(frequencyBox);
-    QVERIFY(customFrequency);
+    QVERIFY(!customFrequency);
     QCOMPARE(modeBox->count(), 2);
     QCOMPARE(modeBox->itemText(0), QString("地震模拟"));
     QCOMPARE(modeBox->itemText(1), QString("正弦测试"));
@@ -163,16 +178,10 @@ void MainWindowTest::exposesSimulationModeControls()
     QCOMPARE(frequencyBox->itemText(1), QString("30 Hz"));
     QCOMPARE(frequencyBox->itemText(2), QString("80 Hz"));
     QCOMPARE(frequencyBox->itemText(3), QString("自定义"));
-    QCOMPARE(customFrequency->minimum(), 1.0);
-    QCOMPARE(customFrequency->maximum(), 200.0);
     QVERIFY(!frequencyBox->isEnabled());
-    QVERIFY(!customFrequency->isEnabled());
 
     modeBox->setCurrentIndex(1);
     QVERIFY(frequencyBox->isEnabled());
-    QVERIFY(!customFrequency->isEnabled());
-    frequencyBox->setCurrentIndex(3);
-    QVERIFY(customFrequency->isEnabled());
     QCOMPARE(window.findChildren<QTimer *>().size(), 1);
 }
 
@@ -185,7 +194,7 @@ void MainWindowTest::routesSinePresetToAllChannels()
     QVERIFY(frequencyBox);
 
     modeBox->setCurrentIndex(1);
-    frequencyBox->setCurrentIndex(1);
+    QVERIFY(activateComboItem(frequencyBox, 1));
     QVERIFY(QMetaObject::invokeMethod(&window, "generateData", Qt::DirectConnection));
 
     SeismicSignalGenerator expectedGenerator(100, 16092026);
@@ -205,15 +214,23 @@ void MainWindowTest::routesCustomSineFrequency()
     MainWindow window;
     auto *modeBox = window.findChild<QComboBox *>("signalModeBox");
     auto *frequencyBox = window.findChild<QComboBox *>("frequencyPresetBox");
-    auto *customFrequency = window.findChild<QDoubleSpinBox *>("customFrequencySpin");
     QVERIFY(modeBox);
     QVERIFY(frequencyBox);
-    QVERIFY(customFrequency);
 
     QVERIFY(QMetaObject::invokeMethod(&window, "generateData", Qt::DirectConnection));
     modeBox->setCurrentIndex(1);
-    frequencyBox->setCurrentIndex(3);
-    customFrequency->setValue(137.5);
+    bool dialogOpened = false;
+    QTimer::singleShot(0, [&dialogOpened]() {
+        auto *dialog = qobject_cast<QInputDialog *>(QApplication::activeModalWidget());
+        if (!dialog)
+            return;
+        dialogOpened = true;
+        dialog->setDoubleValue(137.5);
+        dialog->accept();
+    });
+    QVERIFY(activateComboItem(frequencyBox, 3));
+    QVERIFY(dialogOpened);
+    QCOMPARE(frequencyBox->itemText(3), QString("自定义 137.5 Hz"));
     QVERIFY(window.model()->samples(0).isEmpty());
     QVERIFY(QMetaObject::invokeMethod(&window, "generateData", Qt::DirectConnection));
 
@@ -225,6 +242,35 @@ void MainWindowTest::routesCustomSineFrequency()
                                                      1000,
                                                      137.5));
     QCOMPARE(window.model()->samples(0), expected);
+}
+
+void MainWindowTest::cancelingCustomFrequencyKeepsPreviousSelection()
+{
+    MainWindow window;
+    auto *modeBox = window.findChild<QComboBox *>("signalModeBox");
+    auto *frequencyBox = window.findChild<QComboBox *>("frequencyPresetBox");
+    QVERIFY(modeBox);
+    QVERIFY(frequencyBox);
+
+    modeBox->setCurrentIndex(1);
+    QVERIFY(activateComboItem(frequencyBox, 1));
+    QVERIFY(QMetaObject::invokeMethod(&window, "generateData", Qt::DirectConnection));
+    const QVector<double> samplesBeforeDialog = window.model()->samples(0);
+
+    bool dialogOpened = false;
+    QTimer::singleShot(0, [&dialogOpened]() {
+        auto *dialog = qobject_cast<QInputDialog *>(QApplication::activeModalWidget());
+        if (!dialog)
+            return;
+        dialogOpened = true;
+        dialog->reject();
+    });
+    QVERIFY(activateComboItem(frequencyBox, 3));
+
+    QVERIFY(dialogOpened);
+    QCOMPARE(frequencyBox->currentIndex(), 1);
+    QCOMPARE(frequencyBox->itemText(3), QString("自定义"));
+    QCOMPARE(window.model()->samples(0), samplesBeforeDialog);
 }
 
 void MainWindowTest::detectsScheduledEventFromSamples()
@@ -363,7 +409,7 @@ void MainWindowTest::reportsSelectedChannelSpectrum()
     QVERIFY(plot);
 
     modeBox->setCurrentIndex(1);
-    frequencyBox->setCurrentIndex(1);
+    QVERIFY(activateComboItem(frequencyBox, 1));
     for (int tick = 0; tick < 251; ++tick)
         QVERIFY(QMetaObject::invokeMethod(&window, "generateData", Qt::DirectConnection));
 

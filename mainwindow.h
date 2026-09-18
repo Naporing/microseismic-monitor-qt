@@ -12,7 +12,6 @@
 class QTimer;
 class QPushButton;
 class QComboBox;
-class QDoubleSpinBox;
 class QLabel;
 class QPaintEvent;
 class QMouseEvent;
@@ -94,7 +93,6 @@ private slots:
     void changeSampleRate(int index);
     void changeSignalMode(int index);
     void changeFrequencyPreset(int index);
-    void changeCustomFrequency(double frequencyHz);
     void selectChannel(int channel);
     void openChannelDetail(int channel);
     void closeChannelDetail();
@@ -126,7 +124,6 @@ private:
     QComboBox *sampleRateBox;
     QComboBox *signalModeBox;
     QComboBox *frequencyPresetBox;
-    QDoubleSpinBox *customFrequencySpin;
 
     QLabel *statusLabel;
     QLabel *dataCountLabel;
@@ -139,6 +136,7 @@ private:
     int sampleRate = 1000;
     SignalMode signalMode = SignalMode::Seismic;
     double sineFrequencyHz = 20.0;
+    int lastFrequencyPresetIndex = 0;
     int detailChannel = -1;
     SpectrumResult detailSpectrum;
     int updateCount = 0;

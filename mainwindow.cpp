@@ -1,9 +1,9 @@
 #include "mainwindow.h"
 
 #include <QComboBox>
-#include <QDoubleSpinBox>
 #include <QFrame>
 #include <QHBoxLayout>
+#include <QInputDialog>
 #include <QLabel>
 #include <QMouseEvent>
 #include <QPaintEvent>
@@ -12,6 +12,7 @@
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QScrollArea>
+#include <QSignalBlocker>
 #include <QSizePolicy>
 #include <QSplitter>
 #include <QTimer>
@@ -501,16 +502,6 @@ MainWindow::MainWindow(QWidget *parent)
     frequencyPresetBox->setFixedWidth(86);
     frequencyPresetBox->setEnabled(false);
     controlLayout->addWidget(frequencyPresetBox);
-    customFrequencySpin = new QDoubleSpinBox;
-    customFrequencySpin->setObjectName("customFrequencySpin");
-    customFrequencySpin->setRange(1.0, 200.0);
-    customFrequencySpin->setDecimals(1);
-    customFrequencySpin->setSingleStep(0.5);
-    customFrequencySpin->setSuffix(" Hz");
-    customFrequencySpin->setValue(20.0);
-    customFrequencySpin->setFixedWidth(88);
-    customFrequencySpin->setEnabled(false);
-    controlLayout->addWidget(customFrequencySpin);
     startButton = new QPushButton("开始采集");
     startButton->setObjectName("primaryButton");
     stopButton = new QPushButton("停止采集");
@@ -667,8 +658,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(timer, &QTimer::timeout, this, &MainWindow::generateData);
     connect(sampleRateBox, &QComboBox::currentIndexChanged, this, &MainWindow::changeSampleRate);
     connect(signalModeBox, &QComboBox::currentIndexChanged, this, &MainWindow::changeSignalMode);
-    connect(frequencyPresetBox, &QComboBox::currentIndexChanged, this, &MainWindow::changeFrequencyPreset);
-    connect(customFrequencySpin, &QDoubleSpinBox::valueChanged, this, &MainWindow::changeCustomFrequency);
+    connect(frequencyPresetBox, &QComboBox::activated, this, &MainWindow::changeFrequencyPreset);
     connect(waveformList, &WaveformListWidget::channelSelected, this, &MainWindow::selectChannel);
     connect(waveformList, &WaveformListWidget::channelActivated, this, &MainWindow::openChannelDetail);
     connect(detailCloseButton, &QPushButton::clicked, this, &MainWindow::closeChannelDetail);
@@ -756,38 +746,50 @@ void MainWindow::changeSignalMode(int index)
     signalMode = index == 1 ? SignalMode::Sine : SignalMode::Seismic;
     const bool sineMode = signalMode == SignalMode::Sine;
     frequencyPresetBox->setEnabled(sineMode);
-    customFrequencySpin->setEnabled(sineMode
-                                    && frequencyPresetBox->currentIndex() == 3);
     resetSimulation();
 }
 
 void MainWindow::changeFrequencyPreset(int index)
 {
-    const bool custom = index == 3;
-    customFrequencySpin->setEnabled(signalMode == SignalMode::Sine && custom);
-    if (!custom)
+    if (index < 0 || index > 3)
+        return;
+
+    if (index == 3)
     {
-        static constexpr double frequencies[] = {20.0, 30.0, 80.0};
-        if (index >= 0 && index < 3)
-            sineFrequencyHz = frequencies[index];
+        bool accepted = false;
+        const double frequencyHz = QInputDialog::getDouble(
+            this,
+            "自定义正弦频率",
+            "频率（Hz）",
+            sineFrequencyHz,
+            1.0,
+            200.0,
+            1,
+            &accepted,
+            Qt::WindowFlags(),
+            0.5);
+        if (!accepted)
+        {
+            const QSignalBlocker blocker(frequencyPresetBox);
+            frequencyPresetBox->setCurrentIndex(lastFrequencyPresetIndex);
+            return;
+        }
+
+        sineFrequencyHz = frequencyHz;
+        frequencyPresetBox->setItemText(
+            3,
+            QString("自定义 %1 Hz").arg(frequencyHz, 0, 'f', 1));
     }
     else
     {
-        sineFrequencyHz = customFrequencySpin->value();
+        static constexpr double frequencies[] = {20.0, 30.0, 80.0};
+        sineFrequencyHz = frequencies[index];
+        frequencyPresetBox->setItemText(3, "自定义");
     }
 
+    lastFrequencyPresetIndex = index;
     if (signalMode == SignalMode::Sine)
         resetSimulation();
-}
-
-void MainWindow::changeCustomFrequency(double frequencyHz)
-{
-    if (signalMode != SignalMode::Sine
-        || frequencyPresetBox->currentIndex() != 3)
-        return;
-
-    sineFrequencyHz = frequencyHz;
-    resetSimulation();
 }
 
 void MainWindow::resetSimulation()
