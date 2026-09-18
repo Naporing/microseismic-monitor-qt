@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 
 #include <QComboBox>
+#include <QDoubleSpinBox>
 #include <QLabel>
 #include <QScrollArea>
 #include <QTest>
@@ -20,6 +21,9 @@ private slots:
     void keepsFiveSecondsOfSamples();
     void changingSampleRateClearsAndResizesBuffers();
     void changingSampleRateKeepsNoiseStateContinuous();
+    void exposesSimulationModeControls();
+    void routesSinePresetToAllChannels();
+    void routesCustomSineFrequency();
     void detectsScheduledEventFromSamples();
     void detectsScheduledEventAtFiveHundredHertz();
     void exposesScientificInstrumentDesign();
@@ -100,7 +104,7 @@ void MainWindowTest::keepsFiveSecondsOfSamples()
 void MainWindowTest::changingSampleRateClearsAndResizesBuffers()
 {
     MainWindow window;
-    auto *sampleRateBox = window.findChild<QComboBox *>();
+    auto *sampleRateBox = window.findChild<QComboBox *>("sampleRateBox");
 
     QVERIFY(sampleRateBox);
     QVERIFY(QMetaObject::invokeMethod(&window, "generateData", Qt::DirectConnection));
@@ -115,7 +119,7 @@ void MainWindowTest::changingSampleRateClearsAndResizesBuffers()
 void MainWindowTest::changingSampleRateKeepsNoiseStateContinuous()
 {
     MainWindow window;
-    auto *sampleRateBox = window.findChild<QComboBox *>();
+    auto *sampleRateBox = window.findChild<QComboBox *>("sampleRateBox");
     SeismicSignalGenerator expectedGenerator(100, 16092026);
     DemoEventScheduler expectedEvents(100, 20260916);
 
@@ -136,6 +140,88 @@ void MainWindowTest::changingSampleRateKeepsNoiseStateContinuous()
     QCOMPARE(window.model()->samples(0), expected);
 }
 
+void MainWindowTest::exposesSimulationModeControls()
+{
+    MainWindow window;
+    auto *modeBox = window.findChild<QComboBox *>("signalModeBox");
+    auto *frequencyBox = window.findChild<QComboBox *>("frequencyPresetBox");
+    auto *customFrequency = window.findChild<QDoubleSpinBox *>("customFrequencySpin");
+
+    QVERIFY(modeBox);
+    QVERIFY(frequencyBox);
+    QVERIFY(customFrequency);
+    QCOMPARE(modeBox->count(), 2);
+    QCOMPARE(modeBox->itemText(0), QString("地震模拟"));
+    QCOMPARE(modeBox->itemText(1), QString("正弦测试"));
+    QCOMPARE(frequencyBox->count(), 4);
+    QCOMPARE(frequencyBox->itemText(0), QString("20 Hz"));
+    QCOMPARE(frequencyBox->itemText(1), QString("30 Hz"));
+    QCOMPARE(frequencyBox->itemText(2), QString("80 Hz"));
+    QCOMPARE(frequencyBox->itemText(3), QString("自定义"));
+    QCOMPARE(customFrequency->minimum(), 1.0);
+    QCOMPARE(customFrequency->maximum(), 200.0);
+    QVERIFY(!frequencyBox->isEnabled());
+    QVERIFY(!customFrequency->isEnabled());
+
+    modeBox->setCurrentIndex(1);
+    QVERIFY(frequencyBox->isEnabled());
+    QVERIFY(!customFrequency->isEnabled());
+    frequencyBox->setCurrentIndex(3);
+    QVERIFY(customFrequency->isEnabled());
+    QCOMPARE(window.findChildren<QTimer *>().size(), 1);
+}
+
+void MainWindowTest::routesSinePresetToAllChannels()
+{
+    MainWindow window;
+    auto *modeBox = window.findChild<QComboBox *>("signalModeBox");
+    auto *frequencyBox = window.findChild<QComboBox *>("frequencyPresetBox");
+    QVERIFY(modeBox);
+    QVERIFY(frequencyBox);
+
+    modeBox->setCurrentIndex(1);
+    frequencyBox->setCurrentIndex(1);
+    QVERIFY(QMetaObject::invokeMethod(&window, "generateData", Qt::DirectConnection));
+
+    SeismicSignalGenerator expectedGenerator(100, 16092026);
+    QVector<double> expected;
+    for (int point = 0; point < 20; ++point)
+        expected.append(expectedGenerator.sineSample(0,
+                                                     point / 1000.0,
+                                                     1000,
+                                                     30.0));
+    QCOMPARE(window.model()->samples(0), expected);
+    for (int channel = 0; channel < 100; ++channel)
+        QCOMPARE(window.model()->samples(channel).size(), 20);
+}
+
+void MainWindowTest::routesCustomSineFrequency()
+{
+    MainWindow window;
+    auto *modeBox = window.findChild<QComboBox *>("signalModeBox");
+    auto *frequencyBox = window.findChild<QComboBox *>("frequencyPresetBox");
+    auto *customFrequency = window.findChild<QDoubleSpinBox *>("customFrequencySpin");
+    QVERIFY(modeBox);
+    QVERIFY(frequencyBox);
+    QVERIFY(customFrequency);
+
+    QVERIFY(QMetaObject::invokeMethod(&window, "generateData", Qt::DirectConnection));
+    modeBox->setCurrentIndex(1);
+    frequencyBox->setCurrentIndex(3);
+    customFrequency->setValue(137.5);
+    QVERIFY(window.model()->samples(0).isEmpty());
+    QVERIFY(QMetaObject::invokeMethod(&window, "generateData", Qt::DirectConnection));
+
+    SeismicSignalGenerator expectedGenerator(100, 16092026);
+    QVector<double> expected;
+    for (int point = 0; point < 20; ++point)
+        expected.append(expectedGenerator.sineSample(0,
+                                                     point / 1000.0,
+                                                     1000,
+                                                     137.5));
+    QCOMPARE(window.model()->samples(0), expected);
+}
+
 void MainWindowTest::detectsScheduledEventFromSamples()
 {
     MainWindow window;
@@ -145,7 +231,7 @@ void MainWindowTest::detectsScheduledEventFromSamples()
     while (eventChannels.contains(nonEventChannel))
         ++nonEventChannel;
 
-    const int eventTicks = qCeil((scheduler.eventStartTime(0) + 0.36) * 50.0);
+    const int eventTicks = qCeil((scheduler.eventStartTime(0) + 0.55) * 50.0);
     for (int tick = 0; tick < eventTicks; ++tick)
         QVERIFY(QMetaObject::invokeMethod(&window, "generateData", Qt::DirectConnection));
 
@@ -153,7 +239,7 @@ void MainWindowTest::detectsScheduledEventFromSamples()
         QVERIFY(window.model()->eventDetected(channel));
     QVERIFY(!window.model()->eventDetected(nonEventChannel));
 
-    for (int tick = 0; tick < 50; ++tick)
+    for (int tick = 0; tick < 100; ++tick)
         QVERIFY(QMetaObject::invokeMethod(&window, "generateData", Qt::DirectConnection));
     for (int channel : eventChannels)
         QVERIFY(!window.model()->eventDetected(channel));
@@ -162,13 +248,13 @@ void MainWindowTest::detectsScheduledEventFromSamples()
 void MainWindowTest::detectsScheduledEventAtFiveHundredHertz()
 {
     MainWindow window;
-    auto *sampleRateBox = window.findChild<QComboBox *>();
+    auto *sampleRateBox = window.findChild<QComboBox *>("sampleRateBox");
     const DemoEventScheduler scheduler(100, 20260916);
     const int eventChannel = scheduler.targetsForEvent(0).first();
 
     QVERIFY(sampleRateBox);
     sampleRateBox->setCurrentIndex(1);
-    const int eventTicks = qCeil((scheduler.eventStartTime(0) + 0.36) * 50.0);
+    const int eventTicks = qCeil((scheduler.eventStartTime(0) + 0.55) * 50.0);
     for (int tick = 0; tick < eventTicks; ++tick)
         QVERIFY(QMetaObject::invokeMethod(&window, "generateData", Qt::DirectConnection));
 

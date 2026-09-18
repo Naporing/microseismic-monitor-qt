@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 
 #include <QComboBox>
+#include <QDoubleSpinBox>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -250,9 +251,34 @@ MainWindow::MainWindow(QWidget *parent)
     sampleRateCaption->setObjectName("caption");
     controlLayout->addWidget(sampleRateCaption);
     sampleRateBox = new QComboBox;
+    sampleRateBox->setObjectName("sampleRateBox");
     sampleRateBox->addItems({"1000 Hz", "500 Hz"});
     sampleRateBox->setFixedWidth(108);
     controlLayout->addWidget(sampleRateBox);
+    auto *modeCaption = new QLabel("信号");
+    modeCaption->setObjectName("caption");
+    controlLayout->addWidget(modeCaption);
+    signalModeBox = new QComboBox;
+    signalModeBox->setObjectName("signalModeBox");
+    signalModeBox->addItems({"地震模拟", "正弦测试"});
+    signalModeBox->setFixedWidth(104);
+    controlLayout->addWidget(signalModeBox);
+    frequencyPresetBox = new QComboBox;
+    frequencyPresetBox->setObjectName("frequencyPresetBox");
+    frequencyPresetBox->addItems({"20 Hz", "30 Hz", "80 Hz", "自定义"});
+    frequencyPresetBox->setFixedWidth(86);
+    frequencyPresetBox->setEnabled(false);
+    controlLayout->addWidget(frequencyPresetBox);
+    customFrequencySpin = new QDoubleSpinBox;
+    customFrequencySpin->setObjectName("customFrequencySpin");
+    customFrequencySpin->setRange(1.0, 200.0);
+    customFrequencySpin->setDecimals(1);
+    customFrequencySpin->setSingleStep(0.5);
+    customFrequencySpin->setSuffix(" Hz");
+    customFrequencySpin->setValue(20.0);
+    customFrequencySpin->setFixedWidth(88);
+    customFrequencySpin->setEnabled(false);
+    controlLayout->addWidget(customFrequencySpin);
     startButton = new QPushButton("开始采集");
     startButton->setObjectName("primaryButton");
     stopButton = new QPushButton("停止采集");
@@ -338,7 +364,7 @@ MainWindow::MainWindow(QWidget *parent)
         QLabel#readout { color: #314552; border-left: 1px solid #CAD4DB; padding: 3px 10px; font-family: "Cascadia Mono"; font-weight: 650; }
         QLabel#dataCount { color: #17212B; min-width: 92px; font-family: "Cascadia Mono"; font-size: 14px; font-weight: 700; }
         QLabel#legend { font-family: "Cascadia Mono"; font-size: 9px; font-weight: 700; }
-        QComboBox { color: #253642; background: #FFFFFF; border: 1px solid #AEBBC5; border-radius: 3px; padding: 6px 8px; }
+        QComboBox, QDoubleSpinBox { color: #253642; background: #FFFFFF; border: 1px solid #AEBBC5; border-radius: 3px; padding: 6px 8px; }
         QComboBox::drop-down { border: 0; width: 22px; }
         QComboBox QAbstractItemView { color: #253642; background: #FFFFFF; selection-background-color: #CBE3ED; }
         QPushButton { color: #314552; background: #FFFFFF; border: 1px solid #AEBBC5; border-radius: 3px; padding: 7px 11px; font-weight: 650; }
@@ -365,6 +391,9 @@ MainWindow::MainWindow(QWidget *parent)
     connect(stopButton, &QPushButton::clicked, this, &MainWindow::stopAcquisition);
     connect(timer, &QTimer::timeout, this, &MainWindow::generateData);
     connect(sampleRateBox, &QComboBox::currentIndexChanged, this, &MainWindow::changeSampleRate);
+    connect(signalModeBox, &QComboBox::currentIndexChanged, this, &MainWindow::changeSignalMode);
+    connect(frequencyPresetBox, &QComboBox::currentIndexChanged, this, &MainWindow::changeFrequencyPreset);
+    connect(customFrequencySpin, &QDoubleSpinBox::valueChanged, this, &MainWindow::changeCustomFrequency);
 }
 
 MainWindow::~MainWindow() = default;
@@ -403,8 +432,19 @@ void MainWindow::generateData()
         for (int point = 0; point < pointsPerUpdate; ++point)
         {
             const double t = batchStart + static_cast<double>(point) / sampleRate;
-            double value = signalGenerator.sample(channel, t, sampleRate);
-            value += eventScheduler.impulse(channel, t);
+            double value = 0.0;
+            if (signalMode == SignalMode::Sine)
+            {
+                value = signalGenerator.sineSample(channel,
+                                                   t,
+                                                   sampleRate,
+                                                   sineFrequencyHz);
+            }
+            else
+            {
+                value = signalGenerator.sample(channel, t, sampleRate);
+                value += eventScheduler.impulse(channel, t);
+            }
             batch.append(value);
         }
         waveformModel.appendSamples(channel, batch);
@@ -425,5 +465,53 @@ void MainWindow::changeSampleRate(int index)
     waveformModel.clear();
     waveformModel.setMaxPoints(sampleRate * DISPLAY_WINDOW_SECONDS);
     eventDetector.reset();
+    waveformList->update();
+}
+
+void MainWindow::changeSignalMode(int index)
+{
+    signalMode = index == 1 ? SignalMode::Sine : SignalMode::Seismic;
+    const bool sineMode = signalMode == SignalMode::Sine;
+    frequencyPresetBox->setEnabled(sineMode);
+    customFrequencySpin->setEnabled(sineMode
+                                    && frequencyPresetBox->currentIndex() == 3);
+    resetSimulation();
+}
+
+void MainWindow::changeFrequencyPreset(int index)
+{
+    const bool custom = index == 3;
+    customFrequencySpin->setEnabled(signalMode == SignalMode::Sine && custom);
+    if (!custom)
+    {
+        static constexpr double frequencies[] = {20.0, 30.0, 80.0};
+        if (index >= 0 && index < 3)
+            sineFrequencyHz = frequencies[index];
+    }
+    else
+    {
+        sineFrequencyHz = customFrequencySpin->value();
+    }
+
+    if (signalMode == SignalMode::Sine)
+        resetSimulation();
+}
+
+void MainWindow::changeCustomFrequency(double frequencyHz)
+{
+    if (signalMode != SignalMode::Sine
+        || frequencyPresetBox->currentIndex() != 3)
+        return;
+
+    sineFrequencyHz = frequencyHz;
+    resetSimulation();
+}
+
+void MainWindow::resetSimulation()
+{
+    waveformModel.clear();
+    eventDetector.reset();
+    signalGenerator.reset();
+    elapsedSeconds = 0.0;
     waveformList->update();
 }

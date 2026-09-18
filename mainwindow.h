@@ -11,6 +11,7 @@
 class QTimer;
 class QPushButton;
 class QComboBox;
+class QDoubleSpinBox;
 class QLabel;
 class QPaintEvent;
 class QColor;
@@ -54,8 +55,19 @@ private slots:
     void stopAcquisition();
     void generateData();
     void changeSampleRate(int index);
+    void changeSignalMode(int index);
+    void changeFrequencyPreset(int index);
+    void changeCustomFrequency(double frequencyHz);
 
 private:
+    enum class SignalMode
+    {
+        Seismic,
+        Sine
+    };
+
+    void resetSimulation();
+
     WaveformModel waveformModel;
     DemoEventScheduler eventScheduler;
     ChannelEventDetector eventDetector;
@@ -68,11 +80,16 @@ private:
     QPushButton *stopButton;
 
     QComboBox *sampleRateBox;
+    QComboBox *signalModeBox;
+    QComboBox *frequencyPresetBox;
+    QDoubleSpinBox *customFrequencySpin;
 
     QLabel *statusLabel;
     QLabel *dataCountLabel;
 
     int sampleRate = 1000;
+    SignalMode signalMode = SignalMode::Seismic;
+    double sineFrequencyHz = 20.0;
     int updateCount = 0;
     long long totalDataCount = 0;
     double elapsedSeconds = 0.0;
