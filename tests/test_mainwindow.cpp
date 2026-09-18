@@ -236,12 +236,17 @@ void MainWindowTest::detectsScheduledEventFromSamples()
     while (eventChannels.contains(nonEventChannel))
         ++nonEventChannel;
 
-    const int eventTicks = qCeil((scheduler.eventStartTime(0) + 0.55) * 50.0);
+    const int eventTicks = qCeil((scheduler.eventStartTime(0) + 0.75) * 50.0);
     for (int tick = 0; tick < eventTicks; ++tick)
         QVERIFY(QMetaObject::invokeMethod(&window, "generateData", Qt::DirectConnection));
 
     for (int channel : eventChannels)
-        QVERIFY(window.model()->eventDetected(channel));
+    {
+        QVERIFY2(window.model()->eventDetected(channel),
+                 qPrintable(QString("channel %1 peak %2 was not detected")
+                                .arg(channel)
+                                .arg(window.model()->peak(channel))));
+    }
     QVERIFY(!window.model()->eventDetected(nonEventChannel));
 
     for (int tick = 0; tick < 100; ++tick)
@@ -259,7 +264,7 @@ void MainWindowTest::detectsScheduledEventAtFiveHundredHertz()
 
     QVERIFY(sampleRateBox);
     sampleRateBox->setCurrentIndex(1);
-    const int eventTicks = qCeil((scheduler.eventStartTime(0) + 0.55) * 50.0);
+    const int eventTicks = qCeil((scheduler.eventStartTime(0) + 0.75) * 50.0);
     for (int tick = 0; tick < eventTicks; ++tick)
         QVERIFY(QMetaObject::invokeMethod(&window, "generateData", Qt::DirectConnection));
 
@@ -301,6 +306,7 @@ void MainWindowTest::opensSwitchesAndClosesDetailDrawer()
     auto *list = window.findChild<WaveformListWidget *>("waveformListWidget");
     auto *channelLabel = window.findChild<QLabel *>("detailChannelLabel");
     auto *frequencyLabel = window.findChild<QLabel *>("detailFrequencyLabel");
+    auto *visibleChannelBadge = window.findChild<QLabel *>("visibleChannelBadge");
     auto *closeButton = window.findChild<QPushButton *>("detailCloseButton");
 
     QVERIFY(splitter);
@@ -308,6 +314,7 @@ void MainWindowTest::opensSwitchesAndClosesDetailDrawer()
     QVERIFY(list);
     QVERIFY(channelLabel);
     QVERIFY(frequencyLabel);
+    QVERIFY(visibleChannelBadge);
     QVERIFY(closeButton);
     QVERIFY(panel->isHidden());
     const int timerCount = window.findChildren<QTimer *>().size();
@@ -322,6 +329,7 @@ void MainWindowTest::opensSwitchesAndClosesDetailDrawer()
     QCOMPARE(list->visibleRows(), 34);
     QVERIFY(channelLabel->text().contains("CH-037"));
     QVERIFY(frequencyLabel->text().contains("--"));
+    QVERIFY(visibleChannelBadge->text().contains("34 路"));
 
     const int channel8Y = qFloor((8.5) * list->rowHeight());
     QTest::mouseClick(list,
@@ -334,6 +342,7 @@ void MainWindowTest::opensSwitchesAndClosesDetailDrawer()
     QTest::mouseClick(closeButton, Qt::LeftButton);
     QVERIFY(panel->isHidden());
     QCOMPARE(list->visibleRows(), 50);
+    QVERIFY(visibleChannelBadge->text().contains("50 路"));
     QCOMPARE(window.findChildren<QTimer *>().size(), timerCount);
 }
 

@@ -89,7 +89,8 @@ double SeismicSignalGenerator::sineSample(int channel,
     const double modulation = 1.0
                               + 0.025 * qSin(2.0 * PI * 0.17 * timeSeconds
                                              + phase * 0.31);
-    const double carrier = 0.38 * m_gain[channel] * modulation
+    const double sineGain = 0.90 + (m_gain[channel] - 0.82) * (0.20 / 0.36);
+    const double carrier = 0.38 * sineGain * modulation
                            * qSin(2.0 * PI * frequencyHz * timeSeconds + phase);
     const double noise = 0.012 * m_noiseScale[channel] * nextNoise(channel);
     return carrier + noise;
@@ -208,7 +209,7 @@ double DemoEventScheduler::impulse(int channel, double timeSeconds) const
         return 0.0;
 
     const double distance = distanceFromSource(channel, eventIndex);
-    const double strength = 1.65
+    const double strength = 1.80
                             + 0.20 * unitValue(m_seed
                                                + static_cast<quint32>(eventIndex + 1)
                                                      * 3266489917U);
@@ -243,7 +244,10 @@ double DemoEventScheduler::impulse(int channel, double timeSeconds) const
                                          + eventPhase * 0.41));
 
     const double codaTime = localTime - sDelay - 0.20;
-    const double codaEnvelope = codaTime > 0.0 ? qExp(-2.4 * codaTime) : 0.0;
+    const double codaEnvelope = codaTime > 0.0
+                                    ? (1.0 - qExp(-18.0 * codaTime))
+                                          * qExp(-2.4 * codaTime)
+                                    : 0.0;
     const double coda = codaEnvelope
                         * (0.34 * qSin(2.0 * PI * sFrequency * 0.73 * codaTime
                                       + eventPhase * 0.27)

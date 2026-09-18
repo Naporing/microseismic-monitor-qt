@@ -130,6 +130,7 @@ private:
 
     QLabel *statusLabel;
     QLabel *dataCountLabel;
+    QLabel *visibleChannelBadge;
     QLabel *detailChannelLabel;
     QLabel *detailPeakLabel;
     QLabel *detailRmsLabel;

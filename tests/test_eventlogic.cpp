@@ -3,6 +3,8 @@
 #include <QSet>
 #include <QTest>
 
+#include <algorithm>
+
 class EventLogicTest : public QObject
 {
     Q_OBJECT
@@ -13,6 +15,7 @@ private slots:
     void sineSignalIsContinuousAndAccurate_data();
     void sineSignalIsContinuousAndAccurate();
     void sineSignalIsRepeatableAndChannelSpecific();
+    void sineChannelGainsStayNearTenPercent();
     void sineSignalRejectsInvalidInput();
     void schedulerIsRepeatableAndSpatial();
     void impulsePropagatesWithDelayAndAttenuation();
@@ -119,6 +122,25 @@ void EventLogicTest::sineSignalIsRepeatableAndChannelSpecific()
     }
 
     QVERIFY(channel0 != channel1);
+}
+
+void EventLogicTest::sineChannelGainsStayNearTenPercent()
+{
+    SeismicSignalGenerator generator(100, 16092026);
+    QVector<double> energies(100, 0.0);
+    for (int sample = 0; sample < 2000; ++sample)
+    {
+        const double time = sample / 1000.0;
+        for (int channel = 0; channel < 100; ++channel)
+        {
+            const double value = generator.sineSample(channel, time, 1000, 30.0);
+            energies[channel] += value * value;
+        }
+    }
+
+    const auto bounds = std::minmax_element(energies.cbegin(), energies.cend());
+    QVERIFY(*bounds.first > 0.0);
+    QVERIFY(qSqrt(*bounds.second / *bounds.first) < 1.25);
 }
 
 void EventLogicTest::sineSignalRejectsInvalidInput()
@@ -228,6 +250,8 @@ void EventLogicTest::eventContainsPWaveSWaveAndVariedCoda()
         double sPeak = 0.0;
         double earlyCodaPeak = 0.0;
         double lateCodaPeak = 0.0;
+        double maximumTransitionStep = 0.0;
+        double previousValue = scheduler.impulse(source, arrival + 0.30);
         for (int sample = 0; sample < 1400; ++sample)
         {
             const double offset = sample / 1000.0;
@@ -241,6 +265,12 @@ void EventLogicTest::eventContainsPWaveSWaveAndVariedCoda()
                 earlyCodaPeak = qMax(earlyCodaPeak, qAbs(value));
             else if (offset < 1.20)
                 lateCodaPeak = qMax(lateCodaPeak, qAbs(value));
+            if (offset >= 0.30 && offset <= 0.45)
+            {
+                maximumTransitionStep = qMax(maximumTransitionStep,
+                                             qAbs(value - previousValue));
+                previousValue = value;
+            }
         }
 
         QVERIFY(pPeak > 0.10);
@@ -248,6 +278,7 @@ void EventLogicTest::eventContainsPWaveSWaveAndVariedCoda()
         QVERIFY(earlyCodaPeak > 0.05);
         QVERIFY(lateCodaPeak > 0.01);
         QVERIFY(earlyCodaPeak > lateCodaPeak);
+        QVERIFY(maximumTransitionStep < 0.30);
         eventShapes.append(shape);
     }
 

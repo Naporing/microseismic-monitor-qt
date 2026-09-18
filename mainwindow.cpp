@@ -335,6 +335,26 @@ void ChannelAnalysisPlot::paintEvent(QPaintEvent *event)
     drawGrid(timePlot);
     drawGrid(spectrumPlot);
 
+    painter.setFont(QFont("Cascadia Mono", 8));
+    painter.setPen(QColor("#5D6F7C"));
+    for (int tick = 0; tick <= 4; ++tick)
+    {
+        const double x = spectrumPlot.left() + spectrumPlot.width() * tick / 4.0;
+        painter.drawText(QRectF(x - 24.0,
+                                spectrumPlot.bottom() + 2.0,
+                                48.0,
+                                16.0),
+                         Qt::AlignHCenter | Qt::AlignTop,
+                         QString::number(tick * 50));
+    }
+    for (int tick = 0; tick <= 2; ++tick)
+    {
+        const double y = spectrumPlot.bottom() - spectrumPlot.height() * tick / 2.0;
+        painter.drawText(QRectF(0.0, y - 8.0, 46.0, 16.0),
+                         Qt::AlignRight | Qt::AlignVCenter,
+                         QString::number(-60 + tick * 30));
+    }
+
     const QVector<double> &samples = m_model ? m_model->samples(m_channel)
                                               : QVector<double>();
     if (samples.size() >= 2)
@@ -540,11 +560,11 @@ MainWindow::MainWindow(QWidget *parent)
     auto *waveformHeader = new QHBoxLayout;
     auto *waveformTitle = new QLabel("实时通道记录");
     waveformTitle->setObjectName("sectionTitle");
-    auto *listBadge = new QLabel("通道编号   ·   时间轴 5.0 s   ·   当前显示 50 路");
-    listBadge->setObjectName("subtleBadge");
+    visibleChannelBadge = new QLabel("通道编号   ·   时间轴 5.0 s   ·   当前显示 50 路");
+    visibleChannelBadge->setObjectName("visibleChannelBadge");
     waveformHeader->addWidget(waveformTitle);
     waveformHeader->addStretch();
-    waveformHeader->addWidget(listBadge);
+    waveformHeader->addWidget(visibleChannelBadge);
     waveformLayout->addLayout(waveformHeader);
 
     auto *scrollArea = new MonitorScrollArea;
@@ -613,7 +633,7 @@ MainWindow::MainWindow(QWidget *parent)
         QLabel#detailChannelLabel { color: #1D3544; font-family: "Cascadia Mono"; font-size: 12px; font-weight: 750; }
         QLabel#detailMetric, QLabel#detailFrequencyLabel { color: #4E6472; font-family: "Cascadia Mono"; font-size: 10px; font-weight: 650; }
         QLabel#onlineBadge { color: #106846; background: #E4F3EB; border: 1px solid #A8D4BF; border-radius: 3px; padding: 6px 10px; font-weight: 700; }
-        QLabel#subtleBadge { color: #60717E; font-family: "Cascadia Mono"; font-size: 9px; font-weight: 650; }
+        QLabel#visibleChannelBadge { color: #60717E; font-family: "Cascadia Mono"; font-size: 9px; font-weight: 650; }
         QLabel#statusValue { color: #566A78; font-weight: 700; }
         QLabel#readout { color: #314552; border-left: 1px solid #CAD4DB; padding: 3px 10px; font-family: "Cascadia Mono"; font-weight: 650; }
         QLabel#dataCount { color: #17212B; min-width: 92px; font-family: "Cascadia Mono"; font-size: 14px; font-weight: 700; }
@@ -798,6 +818,7 @@ void MainWindow::openChannelDetail(int channel)
 
     channelDetailPanel->show();
     waveformList->setVisibleRows(34);
+    visibleChannelBadge->setText("通道编号   ·   时间轴 5.0 s   ·   当前显示 34 路");
     const int totalHeight = qMax(1, monitorSplitter->height());
     monitorSplitter->setSizes({qRound(totalHeight * 0.68),
                                qRound(totalHeight * 0.32)});
@@ -808,6 +829,7 @@ void MainWindow::closeChannelDetail()
 {
     channelDetailPanel->hide();
     waveformList->setVisibleRows(50);
+    visibleChannelBadge->setText("通道编号   ·   时间轴 5.0 s   ·   当前显示 50 路");
 }
 
 void MainWindow::refreshChannelDetail()

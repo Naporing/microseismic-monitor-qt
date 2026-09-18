@@ -19,6 +19,7 @@ private slots:
     void selectsAndActivatesClickedChannel();
     void paintsSelectedChannelDistinctly();
     void changesVisibleRowCountForDrawer();
+    void paintsSpectrumAxisLabels();
 };
 
 void WaveformWidgetsTest::mapsVerticalPositionToChannel()
@@ -175,6 +176,42 @@ void WaveformWidgetsTest::changesVisibleRowCountForDrawer()
     list.setVisibleRows(50);
     QCOMPARE(list.height(), 1360);
     QCOMPARE(list.channelAtY(679), 49);
+}
+
+void WaveformWidgetsTest::paintsSpectrumAxisLabels()
+{
+    WaveformModel model(100, 800);
+    ChannelAnalysisPlot plot(&model);
+    plot.resize(900, 300);
+
+    QImage image(plot.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    plot.render(&image);
+
+    int frequencyLabelPixels = 0;
+    for (int y = 281; y < image.height(); ++y)
+    {
+        for (int x = 45; x < image.width() - 5; ++x)
+        {
+            const QColor color = image.pixelColor(x, y);
+            if (color.red() < 140 && color.green() < 150 && color.blue() < 160)
+                ++frequencyLabelPixels;
+        }
+    }
+
+    int decibelLabelPixels = 0;
+    for (int y = 160; y < 281; ++y)
+    {
+        for (int x = 0; x < 48; ++x)
+        {
+            const QColor color = image.pixelColor(x, y);
+            if (color.red() < 140 && color.green() < 150 && color.blue() < 160)
+                ++decibelLabelPixels;
+        }
+    }
+
+    QVERIFY(frequencyLabelPixels > 15);
+    QVERIFY(decibelLabelPixels > 15);
 }
 
 QTEST_MAIN(WaveformWidgetsTest)
