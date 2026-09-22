@@ -128,6 +128,9 @@ if(BUILD_TESTING)
         ENVIRONMENT "QT_QPA_PLATFORM=minimal"
     )
     if(WIN32)
+        find_program(POWERSHELL_EXECUTABLE NAMES pwsh powershell REQUIRED)
+        add_test(NAME packaging_contract COMMAND ${POWERSHELL_EXECUTABLE}
+            -NoProfile -ExecutionPolicy Bypass -File ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_packaging.ps1)
         get_filename_component(compiler_bin "${CMAKE_CXX_COMPILER}" DIRECTORY)
         set_tests_properties(appversion updatemanager spectrumanalyzer waveformmodel eventlogic waveformwidgets mainwindow PROPERTIES
             ENVIRONMENT_MODIFICATION

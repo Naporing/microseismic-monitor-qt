@@ -42,6 +42,7 @@ class MainWindowTest : public QObject
 private slots:
     void exposesUpdateControls();
     void handlesUpdateDialogsAndSilentErrors();
+    void downloadProgressCanBeCanceled();
     void exitsOnlyAfterInstallerLaunchSucceeds();
     void containsWaveformListAndOneTimer();
     void keepsFiftyChannelsInViewport();
@@ -131,6 +132,32 @@ void MainWindowTest::exitsOnlyAfterInstallerLaunchSucceeds()
         QCOMPARE(window.findChild<QTimer *>()->isActive(), !success);
         QCOMPARE(window.findChild<QMessageBox *>("updateMessage") != nullptr, !success);
     }
+}
+
+void MainWindowTest::downloadProgressCanBeCanceled()
+{
+    FakeNetwork network;
+    UpdateManager manager(nullptr, &network);
+    MainWindow window(nullptr, &manager);
+    ReleaseInfo release;
+    release.tagName = "v1.2.0";
+    release.version = QVersionNumber(1, 2, 0);
+    release.installerFileName = "SeismicWaveforms-Setup-v1.2.0.exe";
+    release.installerUrl = QUrl("https://github.com/Naporing/microseismic-monitor-qt/releases/download/v1.2.0/" + release.installerFileName);
+    release.checksumUrl = QUrl(release.installerUrl.toString() + ".sha256");
+    manager.updateAvailable(release);
+    auto *dialog = window.findChild<QDialog *>("updateAvailableDialog");
+    QVERIFY(dialog);
+    dialog->accept();
+    auto *progress = window.findChild<QProgressDialog *>("updateProgressDialog");
+    QVERIFY(progress);
+    QVERIFY(manager.isBusy());
+    QVERIFY(!window.findChild<QPushButton *>("checkUpdateButton")->isEnabled());
+    manager.downloadProgress(50, 100);
+    QCOMPARE(progress->value(), 50);
+    QVERIFY(QMetaObject::invokeMethod(progress, "canceled"));
+    QVERIFY(!manager.isBusy());
+    QVERIFY(window.findChild<QPushButton *>("checkUpdateButton")->isEnabled());
 }
 
 void MainWindowTest::containsWaveformListAndOneTimer()

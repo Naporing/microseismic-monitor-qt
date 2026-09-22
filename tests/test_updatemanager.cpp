@@ -147,6 +147,45 @@ private slots:
         QVERIFY(!manager.isBusy());
     }
 
+    void rejectsInvalidChecksumAndUnwritableDirectory()
+    {
+        FakeNetwork network;
+        network.responses.enqueue({"invalid digest"});
+        QTemporaryDir directory;
+        UpdateManager manager(nullptr, &network, directory.path());
+        QSignalSpy failures(&manager, &UpdateManager::failed);
+        manager.downloadUpdate(*parse(releaseJson()));
+        QTRY_COMPARE(failures.size(), 1);
+        QCOMPARE(network.requests.size(), 1);
+        QFile blockingFile(directory.filePath("file-instead-of-directory"));
+        QVERIFY(blockingFile.open(QIODevice::WriteOnly));
+        blockingFile.close();
+        UpdateManager blocked(nullptr, &network, blockingFile.fileName());
+        QSignalSpy blockedFailure(&blocked, &UpdateManager::failed);
+        blocked.downloadUpdate(*parse(releaseJson()));
+        QCOMPARE(blockedFailure.size(), 1);
+        QCOMPARE(network.requests.size(), 1);
+    }
+
+    void preservesInstallerOnlyAfterHandoff()
+    {
+        const QByteArray bytes("installer");
+        FakeNetwork network;
+        network.responses.enqueue({QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex()});
+        network.responses.enqueue({bytes});
+        QTemporaryDir directory;
+        QString path;
+        {
+            UpdateManager manager(nullptr, &network, directory.path());
+            QSignalSpy ready(&manager, &UpdateManager::readyToInstall);
+            manager.downloadUpdate(*parse(releaseJson()));
+            QTRY_COMPARE(ready.size(), 1);
+            path = ready[0][0].toString();
+            manager.preserveInstaller();
+        }
+        QVERIFY(QFile::exists(path));
+    }
+
     void comparesNumericVersions()
     {
         const auto release = parse(releaseJson("v1.10.0"));
