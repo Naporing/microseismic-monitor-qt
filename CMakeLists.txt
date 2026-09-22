@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 configure_file(appversion.h.in ${CMAKE_CURRENT_BINARY_DIR}/generated/appversion.h @ONLY)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets Network)
 
 include(CTest)
 
@@ -53,8 +53,8 @@ if(BUILD_TESTING)
     add_test(NAME appversion COMMAND test_appversion)
 
     add_executable(test_updatemanager tests/test_updatemanager.cpp updatemanager.cpp updatemanager.h)
-    target_include_directories(test_updatemanager PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(test_updatemanager PRIVATE Qt::Core Qt::Test)
+    target_include_directories(test_updatemanager PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR}/generated)
+    target_link_libraries(test_updatemanager PRIVATE Qt::Core Qt::Network Qt::Test)
     add_test(NAME updatemanager COMMAND test_updatemanager)
 
     add_executable(test_spectrumanalyzer

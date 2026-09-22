@@ -1,4 +1,5 @@
 #include "updatemanager.h"
+#include "fakenetwork.h"
 
 #include <QCryptographicHash>
 #include <QFile>
@@ -6,6 +7,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryDir>
+#include <QSignalSpy>
 #include <QTest>
 
 namespace {
@@ -29,6 +31,122 @@ class UpdateManagerTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void checksAsynchronouslyAndRejectsDuplicateRequests()
+    {
+        FakeNetwork network;
+        network.responses.enqueue({QJsonDocument(releaseJson()).toJson()});
+        UpdateManager manager(nullptr, &network);
+        QSignalSpy available(&manager, &UpdateManager::updateAvailable);
+        manager.checkForUpdates();
+        QVERIFY(manager.isBusy());
+        manager.checkForUpdates();
+        QCOMPARE(network.requests.size(), 1);
+        QTRY_COMPARE(available.size(), 1);
+        QVERIFY(!manager.isBusy());
+        QCOMPARE(qvariant_cast<ReleaseInfo>(available[0][0]).tagName, QString("v1.2.0"));
+        const auto request = network.requests.first();
+        QCOMPARE(request.url().scheme(), QString("https"));
+        QVERIFY(request.transferTimeout() > 0);
+        QVERIFY(!request.rawHeader("User-Agent").isEmpty());
+        QCOMPARE(request.rawHeader("Accept"), QByteArray("application/vnd.github+json"));
+    }
+
+    void reportsCurrentVersionAndFailures()
+    {
+        FakeNetwork network;
+        network.responses.enqueue({QJsonDocument(releaseJson("v1.0.0")).toJson()});
+        network.responses.enqueue({"invalid"});
+        network.responses.enqueue({{}, 503, QNetworkReply::ServiceUnavailableError});
+        network.responses.enqueue({{}, 404, QNetworkReply::ContentNotFoundError});
+        UpdateManager manager(nullptr, &network);
+        QSignalSpy current(&manager, &UpdateManager::upToDate);
+        QSignalSpy failures(&manager, &UpdateManager::failed);
+        manager.checkForUpdates();
+        QTRY_COMPARE(current.size(), 1);
+        manager.checkForUpdates();
+        QTRY_COMPARE(failures.size(), 1);
+        QCOMPARE(failures[0][1].toBool(), false);
+        manager.checkForUpdates(true);
+        QTRY_COMPARE(failures.size(), 2);
+        QCOMPARE(failures[1][1].toBool(), true);
+        manager.checkForUpdates();
+        QTRY_COMPARE(failures.size(), 3);
+        QVERIFY(failures[2][0].toString().contains("尚未"));
+        QVERIFY(!manager.isBusy());
+    }
+
+    void downloadsVerifiesAndCancels()
+    {
+        const QByteArray bytes(100000, 'x');
+        const auto hash = QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex();
+        FakeNetwork network;
+        network.responses.enqueue({hash + "  SeismicWaveforms-Setup-v1.2.0.exe"});
+        network.responses.enqueue({bytes});
+        QTemporaryDir directory;
+        UpdateManager manager(nullptr, &network, directory.path());
+        QSignalSpy ready(&manager, &UpdateManager::readyToInstall);
+        QSignalSpy progress(&manager, &UpdateManager::downloadProgress);
+        manager.downloadUpdate(*parse(releaseJson()));
+        manager.checkForUpdates();
+        QTRY_COMPARE(ready.size(), 1);
+        QCOMPARE(network.requests.size(), 2);
+        QVERIFY(!progress.isEmpty());
+        const QString path = ready[0][0].toString();
+        QVERIFY(UpdateManager::verifySha256(path, hash));
+        manager.cancel();
+        QVERIFY(!QFile::exists(path));
+        QVERIFY(!manager.isBusy());
+    }
+
+    void neverOffersUnverifiedOrPartialFiles()
+    {
+        const auto release = *parse(releaseJson());
+        for (bool truncated : {false, true})
+        {
+            FakeNetwork network;
+            network.responses.enqueue({QByteArray(64, '0')});
+            network.responses.enqueue({"corrupt", 200, truncated ? QNetworkReply::RemoteHostClosedError : QNetworkReply::NoError});
+            QTemporaryDir directory;
+            UpdateManager manager(nullptr, &network, directory.path());
+            QSignalSpy ready(&manager, &UpdateManager::readyToInstall);
+            QSignalSpy failures(&manager, &UpdateManager::failed);
+            manager.downloadUpdate(release);
+            QTRY_COMPARE(failures.size(), 1);
+            QCOMPARE(ready.size(), 0);
+            QCOMPARE(QDir(directory.path()).entryList(QDir::Dirs | QDir::NoDotAndDotDot).size(), 0);
+        }
+    }
+
+    void rejectsUnsafeRedirectsAndInvalidDownloads()
+    {
+        FakeNetwork network;
+        network.responses.enqueue({{}, 302, QNetworkReply::NoError, QUrl("https://example.com/install.exe")});
+        UpdateManager manager(nullptr, &network);
+        QSignalSpy failures(&manager, &UpdateManager::failed);
+        manager.checkForUpdates();
+        QTRY_COMPARE(failures.size(), 1);
+        auto release = *parse(releaseJson());
+        release.installerFileName = "../other.exe";
+        manager.downloadUpdate(release);
+        QCOMPARE(failures.size(), 2);
+        QCOMPARE(network.requests.size(), 1);
+    }
+
+    void cancellationDoesNotReportAnError()
+    {
+        FakeNetwork network;
+        network.responses.enqueue({QJsonDocument(releaseJson()).toJson()});
+        UpdateManager manager(nullptr, &network);
+        QSignalSpy failures(&manager, &UpdateManager::failed);
+        QSignalSpy available(&manager, &UpdateManager::updateAvailable);
+        manager.checkForUpdates();
+        manager.cancel();
+        QTest::qWait(10);
+        QCOMPARE(failures.size(), 0);
+        QCOMPARE(available.size(), 0);
+        QVERIFY(!manager.isBusy());
+    }
+
     void comparesNumericVersions()
     {
         const auto release = parse(releaseJson("v1.10.0"));
