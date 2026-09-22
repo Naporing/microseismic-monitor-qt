@@ -434,8 +434,8 @@ Install v1.0.0, publish a test v1.0.1 release, use the in-app button to update, 
 - Built `dist/release/SeismicWaveforms-Setup-v1.0.0.exe` and its matching SHA-256 file with Inno Setup 7.1.0.
 - Temporary user-level installation, launch without Qt development paths (all four Qt DLLs loaded from the installation), and uninstall passed. Logs are under `build/install-smoke-364bd3ed20684d82bd36816e53931b2c`.
 - Workflow YAML and PowerShell syntax checked locally; the workflow has not yet run on GitHub.
-- `git ls-remote` showed an empty remote. No code/tag push or public Release has been performed.
-- Remaining release checkpoint: confirm initial public version and GitHub credentials, connect/push the repository, then run Actions and the real v1.0.0 → v1.0.1 upgrade test. A clean Windows user validation also remains.
+- `git ls-remote` showed an empty remote, now configured locally as `origin`. No code/tag push or public Release has been performed.
+- Remaining release checkpoint: confirm initial public version and GitHub credentials, push the repository, then run Actions and the real v1.0.0 → v1.0.1 upgrade test. A clean Windows user validation also remains.
 
 Implementation adjustments supported by local testing:
 
