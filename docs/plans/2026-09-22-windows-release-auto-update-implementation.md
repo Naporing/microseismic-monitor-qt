@@ -426,3 +426,20 @@ Ask the user to approve the initial public release. After approval, push `v1.0.0
 **Step 5: End-to-end upgrade test**
 
 Install v1.0.0, publish a test v1.0.1 release, use the in-app button to update, and verify the application restarts showing v1.0.1. Remove the test release only if the user explicitly requests deletion.
+
+## Implementation record — 2026-09-22
+
+- Tasks 1–6 implemented locally on the existing `master` checkout.
+- Eight CTest groups pass, including update parsing/network/UI tests and packaging validation.
+- Built `dist/release/SeismicWaveforms-Setup-v1.0.0.exe` and its matching SHA-256 file with Inno Setup 7.1.0.
+- Temporary user-level installation, launch without Qt development paths (all four Qt DLLs loaded from the installation), and uninstall passed. Logs are under `build/install-smoke-364bd3ed20684d82bd36816e53931b2c`.
+- Workflow YAML and PowerShell syntax checked locally; the workflow has not yet run on GitHub.
+- `git ls-remote` showed an empty remote. No code/tag push or public Release has been performed.
+- Remaining release checkpoint: confirm initial public version and GitHub credentials, connect/push the repository, then run Actions and the real v1.0.0 → v1.0.1 upgrade test. A clean Windows user validation also remains.
+
+Implementation adjustments supported by local testing:
+
+- CTest needs explicit Windows runtime search paths in this environment. These now come from the configured Qt target and compiler location instead of hard-coded drive paths.
+- The existing Qt deployment uses `bin/` and `plugins/`; installer shortcuts launch `bin/Seismic_Waveforms_demo.exe`.
+- The installer restarts via `/UPDATE=1` and a single `[Run]` entry, with Restart Manager relaunch disabled to prevent duplicate launches.
+- Downloads use uniquely named temporary directories, bounded streamed data, cancellation, and incremental SHA-256 hashing. Tests inject network replies and the process launcher.

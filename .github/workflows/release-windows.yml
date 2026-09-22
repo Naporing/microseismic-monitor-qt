@@ -1,0 +1,105 @@
+name: Windows release
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Validate version
+        run: |
+          $text = Get-Content CMakeLists.txt -Raw
+          $version = [regex]::Match($text, 'project\(Seismic_Waveforms_demo\s+VERSION\s+(\d+\.\d+\.\d+)').Groups[1].Value
+          if (-not $version) { throw 'Missing CMake project version' }
+          if ($env:GITHUB_EVENT_NAME -eq 'push') {
+            if ($env:GITHUB_REF_NAME -notmatch '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') { throw 'Invalid version tag' }
+            if ($env:GITHUB_REF_NAME -ne "v$version") { throw 'Tag differs from CMake version' }
+          }
+          "RELEASE_VERSION=$version" >> $env:GITHUB_ENV
+
+      - name: Install Qt and matching MinGW
+        uses: jurplel/install-qt-action@a9c63c7c123f3069cff414e7e482d95dfa9d8125 # v4
+        with:
+          version: '6.11.2'
+          host: windows
+          target: desktop
+          arch: win64_mingw
+          tools: tools_mingw1310
+          cache: true
+
+      - name: Configure, build and test
+        run: |
+          cmake -S . -B build/ci -G 'MinGW Makefiles' -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON "-DCMAKE_PREFIX_PATH=$env:QT_ROOT_DIR"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build build/ci --parallel 4
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ctest --test-dir build/ci --output-on-failure
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Install pinned Inno Setup
+        run: |
+          $installer = Join-Path $env:RUNNER_TEMP 'innosetup-7.1.0-x64.exe'
+          Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-7_1_0/innosetup-7.1.0-x64.exe' -OutFile $installer
+          $expected = '0362a383ed217d4c4239b5933866dd96d3eb2102737da92f80f6057a4b40df2f'
+          if ((Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'Inno Setup checksum mismatch' }
+          $signature = Get-AuthenticodeSignature $installer
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Pyrsys') { throw 'Invalid Inno Setup signature' }
+          $destination = Join-Path $env:RUNNER_TEMP 'InnoSetup7'
+          $process = Start-Process -FilePath $installer -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER','/NOICONS',("/DIR=`"$destination`"")) -WindowStyle Hidden -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw 'Inno Setup installation failed' }
+          "ISCC_PATH=$destination\ISCC.exe" >> $env:GITHUB_ENV
+
+      - name: Package Windows x64
+        run: ./scripts/package-windows.ps1 -Version $env:RELEASE_VERSION -IsccPath $env:ISCC_PATH
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-x64-installer
+          path: |
+            dist/release/SeismicWaveforms-Setup-v${{ env.RELEASE_VERSION }}.exe
+            dist/release/SeismicWaveforms-Setup-v${{ env.RELEASE_VERSION }}.exe.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: windows-2022
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-x64-installer
+          path: dist/release
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $installer = "dist/release/SeismicWaveforms-Setup-$env:GITHUB_REF_NAME.exe"
+          $expected = ((Get-Content "$installer.sha256" -Raw) -split '\s+')[0]
+          if ((Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'Artifact checksum mismatch' }
+          gh release create $env:GITHUB_REF_NAME $installer "$installer.sha256" --verify-tag --generate-notes --latest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
