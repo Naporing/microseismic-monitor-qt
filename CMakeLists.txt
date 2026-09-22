@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.19)
-project(Seismic_Waveforms_demo LANGUAGES CXX)
+project(Seismic_Waveforms_demo VERSION 1.0.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+configure_file(appversion.h.in ${CMAKE_CURRENT_BINARY_DIR}/generated/appversion.h @ONLY)
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets)
 
@@ -25,6 +29,7 @@ target_link_libraries(Seismic_Waveforms_demo
         Qt::Core
         Qt::Widgets
 )
+target_include_directories(Seismic_Waveforms_demo PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
 
 install(TARGETS Seismic_Waveforms_demo
     BUNDLE  DESTINATION .
@@ -41,6 +46,16 @@ install(SCRIPT ${deploy_script})
 
 if(BUILD_TESTING)
     find_package(Qt6 6.5 REQUIRED COMPONENTS Test)
+
+    add_executable(test_appversion tests/test_appversion.cpp)
+    target_include_directories(test_appversion PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
+    target_link_libraries(test_appversion PRIVATE Qt::Core Qt::Test)
+    add_test(NAME appversion COMMAND test_appversion)
+
+    add_executable(test_updatemanager tests/test_updatemanager.cpp updatemanager.cpp updatemanager.h)
+    target_include_directories(test_updatemanager PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_updatemanager PRIVATE Qt::Core Qt::Test)
+    add_test(NAME updatemanager COMMAND test_updatemanager)
 
     add_executable(test_spectrumanalyzer
         tests/test_spectrumanalyzer.cpp
@@ -104,9 +119,14 @@ if(BUILD_TESTING)
     set_target_properties(test_mainwindow PROPERTIES WIN32_EXECUTABLE FALSE)
     add_test(NAME mainwindow COMMAND test_mainwindow)
 
-    set_tests_properties(spectrumanalyzer waveformmodel eventlogic waveformwidgets mainwindow PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_PLUGIN_PATH=D:/develop/Qt/6.11.2/mingw_64/plugins"
-        ENVIRONMENT_MODIFICATION
-            "PATH=path_list_prepend:D:/develop/Qt/Tools/mingw1310_64/bin;PATH=path_list_prepend:D:/develop/Qt/6.11.2/mingw_64/bin"
+    set_tests_properties(appversion updatemanager spectrumanalyzer waveformmodel eventlogic waveformwidgets mainwindow PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=minimal"
     )
+    if(WIN32)
+        get_filename_component(compiler_bin "${CMAKE_CXX_COMPILER}" DIRECTORY)
+        set_tests_properties(appversion updatemanager spectrumanalyzer waveformmodel eventlogic waveformwidgets mainwindow PROPERTIES
+            ENVIRONMENT_MODIFICATION
+                "PATH=path_list_prepend:${compiler_bin};PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+        )
+    endif()
 endif()
