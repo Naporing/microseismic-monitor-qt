@@ -1,4 +1,7 @@
 #include "mainwindow.h"
+#include "appversion.h"
+#include "updatemanager.h"
+#include "fakenetwork.h"
 
 #include <QApplication>
 #include <QComboBox>
@@ -11,6 +14,12 @@
 #include <QTest>
 #include <QTimer>
 #include <QVariant>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QMessageBox>
+#include <QPlainTextEdit>
+#include <QProgressDialog>
+#include <QSignalSpy>
 #include <QtMath>
 
 namespace {
@@ -31,6 +40,9 @@ class MainWindowTest : public QObject
     Q_OBJECT
 
 private slots:
+    void exposesUpdateControls();
+    void handlesUpdateDialogsAndSilentErrors();
+    void exitsOnlyAfterInstallerLaunchSucceeds();
     void containsWaveformListAndOneTimer();
     void keepsFiftyChannelsInViewport();
     void oneTickUpdatesEveryChannel();
@@ -49,6 +61,77 @@ private slots:
     void opensSwitchesAndClosesDetailDrawer();
     void reportsSelectedChannelSpectrum();
 };
+
+void MainWindowTest::exposesUpdateControls()
+{
+    FakeNetwork network;
+    UpdateManager manager(nullptr, &network);
+    MainWindow window(nullptr, &manager);
+    auto *version = window.findChild<QLabel *>("currentVersionLabel");
+    auto *button = window.findChild<QPushButton *>("checkUpdateButton");
+    QVERIFY(version);
+    QVERIFY(button);
+    QCOMPARE(version->text(), QString("版本 v" APP_VERSION));
+    QCOMPARE(button->text(), QString("检查更新"));
+    button->click();
+    QVERIFY(!button->isEnabled());
+    QCOMPARE(button->text(), QString("检查中…"));
+    manager.cancel();
+    QVERIFY(button->isEnabled());
+}
+
+void MainWindowTest::handlesUpdateDialogsAndSilentErrors()
+{
+    FakeNetwork network;
+    UpdateManager manager(nullptr, &network);
+    MainWindow window(nullptr, &manager);
+    window.show();
+    manager.failed("静默错误", true);
+    QVERIFY(!window.findChild<QMessageBox *>("updateMessage"));
+    manager.failed("手动错误", false);
+    auto *message = window.findChild<QMessageBox *>("updateMessage");
+    QVERIFY(message);
+    QCOMPARE(message->text(), QString("手动错误"));
+    message->close();
+    ReleaseInfo release;
+    release.tagName = "v1.2.0";
+    release.notes = "改进波形显示\n<script>这是纯文本</script>";
+    manager.updateAvailable(release);
+    auto *dialog = window.findChild<QDialog *>("updateAvailableDialog");
+    QVERIFY(dialog);
+    QVERIFY(dialog->windowTitle().contains("v1.2.0"));
+    QCOMPARE(dialog->findChild<QPlainTextEdit *>()->toPlainText(), release.notes);
+    auto *buttons = dialog->findChild<QDialogButtonBox *>();
+    QCOMPARE(buttons->button(QDialogButtonBox::Yes)->text(), QString("立即更新"));
+    QCOMPARE(buttons->button(QDialogButtonBox::No)->text(), QString("稍后"));
+    buttons->button(QDialogButtonBox::No)->click();
+    QVERIFY(window.findChild<QPushButton *>("checkUpdateButton")->isEnabled());
+}
+
+void MainWindowTest::exitsOnlyAfterInstallerLaunchSucceeds()
+{
+    for (bool success : {false, true})
+    {
+        FakeNetwork network;
+        UpdateManager manager(nullptr, &network);
+        QString launchedPath;
+        QStringList launchedArguments;
+        MainWindow window(nullptr, &manager, [&](const QString &path, const QStringList &args) {
+            launchedPath = path;
+            launchedArguments = args;
+            return success;
+        });
+        QSignalSpy restart(&window, &MainWindow::restartRequested);
+        QVERIFY(QMetaObject::invokeMethod(&window, "startAcquisition"));
+        manager.readyToInstall("C:/fake/verified-setup.exe");
+        QTRY_COMPARE(launchedPath, QString("C:/fake/verified-setup.exe"));
+        QVERIFY(launchedArguments.contains("/VERYSILENT"));
+        QVERIFY(launchedArguments.contains("/UPDATE=1"));
+        QCOMPARE(restart.size(), success ? 1 : 0);
+        QCOMPARE(window.findChild<QTimer *>()->isActive(), !success);
+        QCOMPARE(window.findChild<QMessageBox *>("updateMessage") != nullptr, !success);
+    }
+}
 
 void MainWindowTest::containsWaveformListAndOneTimer()
 {

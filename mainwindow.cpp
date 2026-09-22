@@ -1,6 +1,14 @@
 #include "mainwindow.h"
+#include "appversion.h"
+#include "updatemanager.h"
 
 #include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QMessageBox>
+#include <QPlainTextEdit>
+#include <QProcess>
+#include <QProgressDialog>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QInputDialog>
@@ -434,8 +442,12 @@ void ChannelAnalysisPlot::paintEvent(QPaintEvent *event)
     }
 }
 
-MainWindow::MainWindow(QWidget *parent)
+MainWindow::MainWindow(QWidget *parent, UpdateManager *updates, InstallerLauncher launcher)
     : QMainWindow(parent)
+    , updateManager(updates ? updates : new UpdateManager(this))
+    , installerLauncher(launcher ? std::move(launcher) : InstallerLauncher([](const QString &path, const QStringList &args) {
+          return QProcess::startDetached(path, args);
+      }))
     , waveformModel(100, 1000 * DISPLAY_WINDOW_SECONDS)
     , eventScheduler(100, 20260916)
     , eventDetector(100)
@@ -470,6 +482,13 @@ MainWindow::MainWindow(QWidget *parent)
     headingLayout->addWidget(subtitle);
     headerLayout->addLayout(headingLayout);
     headerLayout->addStretch();
+    auto *currentVersionLabel = new QLabel("版本 v" APP_VERSION);
+    currentVersionLabel->setObjectName("currentVersionLabel");
+    headerLayout->addWidget(currentVersionLabel);
+    checkUpdateButton = new QPushButton("检查更新");
+    checkUpdateButton->setObjectName("checkUpdateButton");
+    headerLayout->addWidget(checkUpdateButton);
+    headerLayout->addSpacing(12);
     auto *onlineCountLabel = new QLabel("●  设备在线  100 / 100");
     onlineCountLabel->setObjectName("onlineBadge");
     headerLayout->addWidget(onlineCountLabel, 0, Qt::AlignVCenter);
@@ -619,6 +638,7 @@ MainWindow::MainWindow(QWidget *parent)
         QLabel#eyebrow { color: #607687; font-family: "Cascadia Mono"; font-size: 9px; font-weight: 700; letter-spacing: 1px; }
         QLabel#pageTitle { color: #17212B; font-size: 20px; font-weight: 700; }
         QLabel#subtitle { color: #5D6F7C; font-size: 11px; }
+        QLabel#currentVersionLabel { color: #607687; font-size: 11px; padding: 0 6px; }
         QLabel#caption { color: #5D6F7C; font-size: 10px; font-weight: 650; }
         QLabel#sectionTitle { color: #24333E; font-size: 13px; font-weight: 700; }
         QLabel#detailChannelLabel { color: #1D3544; font-family: "Cascadia Mono"; font-size: 12px; font-weight: 750; }
@@ -662,9 +682,130 @@ MainWindow::MainWindow(QWidget *parent)
     connect(waveformList, &WaveformListWidget::channelSelected, this, &MainWindow::selectChannel);
     connect(waveformList, &WaveformListWidget::channelActivated, this, &MainWindow::openChannelDetail);
     connect(detailCloseButton, &QPushButton::clicked, this, &MainWindow::closeChannelDetail);
+    connectUpdates();
 }
 
 MainWindow::~MainWindow() = default;
+
+void MainWindow::showUpdateMessage(const QString &message)
+{
+    auto *dialog = new QMessageBox(QMessageBox::Information, "软件更新", message, QMessageBox::Ok, this);
+    dialog->setObjectName("updateMessage");
+    dialog->setTextFormat(Qt::PlainText);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setWindowModality(Qt::NonModal);
+    dialog->show();
+}
+
+void MainWindow::closeDownloadProgress()
+{
+    if (updateProgress)
+    {
+        updateProgress->hide();
+        updateProgress->deleteLater();
+        updateProgress = nullptr;
+    }
+}
+
+void MainWindow::showRelease(const ReleaseInfo &release)
+{
+    if (updatePromptOpen)
+        return;
+    updatePromptOpen = true;
+    checkUpdateButton->setEnabled(false);
+    auto *dialog = new QDialog(this);
+    dialog->setObjectName("updateAvailableDialog");
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setWindowTitle("发现新版本 " + release.tagName);
+    dialog->resize(480, 320);
+    auto *layout = new QVBoxLayout(dialog);
+    auto *description = new QLabel(QString("当前版本 v%1 → %2\n下载完成后将自动安装并重启软件。").arg(APP_VERSION, release.tagName));
+    description->setWordWrap(true);
+    layout->addWidget(description);
+    auto *notes = new QPlainTextEdit;
+    notes->setReadOnly(true);
+    notes->setPlainText(release.notes.isEmpty() ? "此版本暂无发布说明。" : release.notes);
+    layout->addWidget(notes, 1);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Yes | QDialogButtonBox::No);
+    buttons->button(QDialogButtonBox::Yes)->setText("立即更新");
+    buttons->button(QDialogButtonBox::No)->setText("稍后");
+    layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
+    connect(dialog, &QDialog::finished, this, [this, release](int result) {
+        updatePromptOpen = false;
+        checkUpdateButton->setEnabled(true);
+        if (result != QDialog::Accepted)
+            return;
+        updateProgress = new QProgressDialog("准备下载更新…", "取消下载", 0, 0, this);
+        updateProgress->setObjectName("updateProgressDialog");
+        updateProgress->setWindowTitle("软件更新");
+        updateProgress->setWindowModality(Qt::NonModal);
+        updateProgress->setAutoClose(false);
+        updateProgress->setAutoReset(false);
+        updateProgress->setMinimumDuration(0);
+        connect(updateProgress, &QProgressDialog::canceled, this, [this] {
+            updateManager->cancel();
+            closeDownloadProgress();
+        });
+        updateProgress->show();
+        updateManager->downloadUpdate(release);
+    });
+    dialog->show();
+}
+
+void MainWindow::connectUpdates()
+{
+    connect(checkUpdateButton, &QPushButton::clicked, this, [this] { updateManager->checkForUpdates(); });
+    connect(updateManager, &UpdateManager::checkingChanged, this, [this](bool checking) {
+        checkUpdateButton->setText(checking ? "检查中…" : "检查更新");
+    });
+    connect(updateManager, &UpdateManager::busyChanged, this, [this](bool busy) {
+        checkUpdateButton->setEnabled(!busy && !updatePromptOpen);
+        if (!busy)
+            checkUpdateButton->setText("检查更新");
+    });
+    connect(updateManager, &UpdateManager::upToDate, this, [this] {
+        checkUpdateButton->setText("已是最新版");
+    });
+    connect(updateManager, &UpdateManager::updateAvailable, this, &MainWindow::showRelease);
+    connect(updateManager, &UpdateManager::failed, this, [this](const QString &message, bool silent) {
+        closeDownloadProgress();
+        if (!silent)
+            showUpdateMessage(message);
+    });
+    connect(updateManager, &UpdateManager::downloadProgress, this, [this](qint64 received, qint64 total) {
+        if (!updateProgress)
+            return;
+        updateProgress->setLabelText(QString("正在下载更新：%1 MB%2")
+            .arg(received / 1048576.0, 0, 'f', 1)
+            .arg(total > 0 ? QString(" / %1 MB").arg(total / 1048576.0, 0, 'f', 1) : QString()));
+        updateProgress->setRange(0, total > 0 ? 100 : 0);
+        if (total > 0)
+            updateProgress->setValue(int(qMin(100LL, received * 100 / total)));
+    });
+    connect(updateManager, &UpdateManager::readyToInstall, this, [this](const QString &path) {
+        if (updateProgress)
+        {
+            updateProgress->setLabelText("校验通过，正在启动安装器…");
+            updateProgress->setCancelButton(nullptr);
+        }
+        const QStringList arguments = {"/VERYSILENT", "/SUPPRESSMSGBOXES", "/SP-",
+                                       "/CLOSEAPPLICATIONS", "/NORESTARTAPPLICATIONS",
+                                       "/NORESTART", "/UPDATE=1", "/LOG"};
+        if (!installerLauncher(path, arguments))
+        {
+            updateManager->cancel();
+            closeDownloadProgress();
+            showUpdateMessage("无法启动更新安装器，当前版本仍可继续使用。请稍后重试。");
+            return;
+        }
+        updateManager->preserveInstaller();
+        stopAcquisition();
+        closeDownloadProgress();
+        emit restartRequested();
+    });
+}
 
 const WaveformModel *MainWindow::model() const
 {

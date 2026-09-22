@@ -4,6 +4,8 @@
 #include <QMainWindow>
 #include <QWidget>
 #include <QVector>
+#include <QPointer>
+#include <functional>
 
 #include "eventlogic.h"
 #include "spectrumanalyzer.h"
@@ -17,6 +19,9 @@ class QPaintEvent;
 class QMouseEvent;
 class QColor;
 class QSplitter;
+class UpdateManager;
+class QProgressDialog;
+struct ReleaseInfo;
 
 
 class WaveformListWidget : public QWidget
@@ -81,10 +86,16 @@ class MainWindow : public QMainWindow
     Q_OBJECT
 
 public:
-    explicit MainWindow(QWidget *parent = nullptr);
+    using InstallerLauncher = std::function<bool(const QString &, const QStringList &)>;
+    explicit MainWindow(QWidget *parent = nullptr,
+                        UpdateManager *updates = nullptr,
+                        InstallerLauncher launcher = {});
     ~MainWindow();
 
     const WaveformModel *model() const;
+
+signals:
+    void restartRequested();
 
 private slots:
     void startAcquisition();
@@ -106,6 +117,16 @@ private:
 
     void resetSimulation();
     void refreshChannelDetail();
+    void connectUpdates();
+    void showRelease(const ReleaseInfo &release);
+    void showUpdateMessage(const QString &message);
+    void closeDownloadProgress();
+
+    UpdateManager *updateManager;
+    InstallerLauncher installerLauncher;
+    QPushButton *checkUpdateButton;
+    QPointer<QProgressDialog> updateProgress;
+    bool updatePromptOpen = false;
 
     WaveformModel waveformModel;
     DemoEventScheduler eventScheduler;

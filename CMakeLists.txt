@@ -11,6 +11,10 @@ include(CTest)
 
 qt_standard_project_setup()
 
+add_library(app_update STATIC updatemanager.cpp updatemanager.h)
+target_include_directories(app_update PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR}/generated)
+target_link_libraries(app_update PUBLIC Qt::Core Qt::Network)
+
 qt_add_executable(Seismic_Waveforms_demo
     WIN32 MACOSX_BUNDLE
     main.cpp
@@ -28,6 +32,7 @@ target_link_libraries(Seismic_Waveforms_demo
     PRIVATE
         Qt::Core
         Qt::Widgets
+        app_update
 )
 target_include_directories(Seismic_Waveforms_demo PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
 
@@ -52,9 +57,9 @@ if(BUILD_TESTING)
     target_link_libraries(test_appversion PRIVATE Qt::Core Qt::Test)
     add_test(NAME appversion COMMAND test_appversion)
 
-    add_executable(test_updatemanager tests/test_updatemanager.cpp updatemanager.cpp updatemanager.h)
+    add_executable(test_updatemanager tests/test_updatemanager.cpp)
     target_include_directories(test_updatemanager PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR}/generated)
-    target_link_libraries(test_updatemanager PRIVATE Qt::Core Qt::Network Qt::Test)
+    target_link_libraries(test_updatemanager PRIVATE app_update Qt::Test)
     add_test(NAME updatemanager COMMAND test_updatemanager)
 
     add_executable(test_spectrumanalyzer
@@ -99,7 +104,7 @@ if(BUILD_TESTING)
         waveformmodel.h
     )
     target_include_directories(test_waveformwidgets PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(test_waveformwidgets PRIVATE Qt::Core Qt::Widgets Qt::Test)
+    target_link_libraries(test_waveformwidgets PRIVATE Qt::Core Qt::Widgets Qt::Test app_update)
     set_target_properties(test_waveformwidgets PROPERTIES WIN32_EXECUTABLE FALSE)
     add_test(NAME waveformwidgets COMMAND test_waveformwidgets)
 
@@ -115,7 +120,7 @@ if(BUILD_TESTING)
         waveformmodel.h
     )
     target_include_directories(test_mainwindow PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(test_mainwindow PRIVATE Qt::Core Qt::Widgets Qt::Test)
+    target_link_libraries(test_mainwindow PRIVATE Qt::Core Qt::Widgets Qt::Test app_update)
     set_target_properties(test_mainwindow PROPERTIES WIN32_EXECUTABLE FALSE)
     add_test(NAME mainwindow COMMAND test_mainwindow)
 
