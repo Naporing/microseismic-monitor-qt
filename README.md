@@ -14,7 +14,7 @@ Qt 6 / C++17 的 100 路波形演示程序。包含持续正弦测试、地震�
 
 ## 本地构建与测试
 
-推荐与 CI 一致的 Qt 6.11.2 MinGW x64、MinGW 13.1、CMake，以及 Inno Setup 7.1。按实际安装路径设置环境：
+CI 使用公开仓库可稳定获取的 Qt 6.10.3 MinGW x64 和 MinGW 13.1；本地也已在 Qt 6.11.2 上通过测试。按实际安装路径设置环境：
 
 ```powershell
 $env:QT_ROOT_DIR = 'D:\develop\Qt\6.11.2\mingw_64'
