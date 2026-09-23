@@ -1,5 +1,7 @@
 name: Windows release
 
+# Manual runs validate and upload the installer artifact. Version tags also publish a GitHub Release.
+
 on:
   push:
     tags: ['v*.*.*']
