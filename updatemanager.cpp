@@ -17,6 +17,8 @@
 
 namespace {
 const QString releaseBase = "https://github.com/Naporing/microseismic-monitor-qt/releases/download/";
+const QUrl latestReleasePage("https://github.com/Naporing/microseismic-monitor-qt/releases/latest");
+const QString releaseTagPath = "/Naporing/microseismic-monitor-qt/releases/tag/";
 
 bool validTag(const QString &tag)
 {
@@ -94,6 +96,7 @@ void UpdateManager::reset()
     m_directory.reset();
     m_response.clear();
     m_state = State::Idle;
+    m_checkingReleasePage = false;
 }
 
 void UpdateManager::cancel()
@@ -165,14 +168,21 @@ void UpdateManager::request(const QUrl &url)
 {
     m_response.clear();
     QNetworkRequest request(url);
+    const bool releasePage = m_state == State::Checking && m_checkingReleasePage;
     request.setRawHeader("User-Agent", "SeismicWaveformsDemo/" APP_VERSION);
-    request.setRawHeader("Accept", m_state == State::Checking ? "application/vnd.github+json" : "application/octet-stream");
-    if (m_state == State::Checking)
+    if (releasePage)
+        request.setRawHeader("Accept", "text/html");
+    else
+        request.setRawHeader("Accept", m_state == State::Checking ? "application/vnd.github+json"
+                                                             : "application/octet-stream");
+    if (m_state == State::Checking && !releasePage)
         request.setRawHeader("X-GitHub-Api-Version", "2022-11-28");
     request.setTransferTimeout(30000);
     request.setMaximumRedirectsAllowed(5);
-    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::UserVerifiedRedirectPolicy);
-    m_reply = m_network->get(request);
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         releasePage ? QNetworkRequest::ManualRedirectPolicy
+                                     : QNetworkRequest::UserVerifiedRedirectPolicy);
+    m_reply = releasePage ? m_network->head(request) : m_network->get(request);
     m_reply->setReadBufferSize(64 * 1024);
     connect(m_reply, &QNetworkReply::redirected, this, [this](const QUrl &target) {
         if (!safeRedirect(target, m_state == State::Checking))
@@ -239,6 +249,48 @@ void UpdateManager::finishRequest()
     if (m_state == State::Checking && status == 404)
     {
         fail("尚未找到公开的正式发布版本。");
+        return;
+    }
+    if (m_state == State::Checking && !m_checkingReleasePage && status == 403
+        && reply->rawHeader("X-RateLimit-Remaining").trimmed() == "0")
+    {
+        m_checkingReleasePage = true;
+        request(latestReleasePage);
+        return;
+    }
+    if (m_state == State::Checking && m_checkingReleasePage)
+    {
+        if (reply->error() != QNetworkReply::NoError || status != 302)
+        {
+            fail(QString("更新请求失败（HTTP %1）：%2").arg(status).arg(reply->errorString()));
+            return;
+        }
+        const QUrl target = reply->attribute(QNetworkRequest::RedirectionTargetAttribute).toUrl();
+        const QString path = target.path(QUrl::FullyEncoded);
+        if (target.scheme() != "https" || target.host() != "github.com"
+            || !target.userInfo().isEmpty() || target.port() != -1
+            || !target.query().isEmpty() || !target.fragment().isEmpty()
+            || !path.startsWith(releaseTagPath) || !validTag(path.mid(releaseTagPath.size())))
+        {
+            fail("最新版本页面返回了无效的跳转地址。");
+            return;
+        }
+        ReleaseInfo release;
+        release.tagName = path.mid(releaseTagPath.size());
+        release.version = QVersionNumber::fromString(release.tagName.mid(1));
+        const bool newerVersion = release.version > QVersionNumber::fromString(APP_VERSION);
+        if (newerVersion)
+        {
+            release.releaseName = "Release " + release.tagName;
+            release.installerFileName = "SeismicWaveforms-Setup-" + release.tagName + ".exe";
+            release.installerUrl = QUrl(releaseBase + release.tagName + "/" + release.installerFileName);
+            release.checksumUrl = QUrl(release.installerUrl.toString() + ".sha256");
+        }
+        cancel();
+        if (newerVersion)
+            emit updateAvailable(release);
+        else
+            emit upToDate();
         return;
     }
     if (reply->error() != QNetworkReply::NoError || status != 200)

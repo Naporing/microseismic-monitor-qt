@@ -75,6 +75,67 @@ private slots:
         QVERIFY(!manager.isBusy());
     }
 
+    void checksReleasePageWhenApiQuotaIsExhausted()
+    {
+        FakeNetwork network;
+        network.responses.enqueue({{}, 403, QNetworkReply::ContentAccessDenied, {}, "0"});
+        network.responses.enqueue({{}, 302, QNetworkReply::NoError,
+                                   QUrl("https://github.com/Naporing/microseismic-monitor-qt/releases/tag/v1.2.0")});
+        UpdateManager manager(nullptr, &network);
+        QSignalSpy available(&manager, &UpdateManager::updateAvailable);
+        QSignalSpy failures(&manager, &UpdateManager::failed);
+        manager.checkForUpdates();
+        QTRY_COMPARE(network.requests.size(), 2);
+        QTRY_COMPARE(available.size(), 1);
+        QCOMPARE(failures.size(), 0);
+        QCOMPARE(network.operations[1], QNetworkAccessManager::HeadOperation);
+        QCOMPARE(network.requests[1].url(), QUrl("https://github.com/Naporing/microseismic-monitor-qt/releases/latest"));
+        QCOMPARE(network.requests[1].attribute(QNetworkRequest::RedirectPolicyAttribute).toInt(),
+                 int(QNetworkRequest::ManualRedirectPolicy));
+        const auto release = qvariant_cast<ReleaseInfo>(available[0][0]);
+        QCOMPARE(release.tagName, QString("v1.2.0"));
+        QCOMPARE(release.installerUrl, QUrl("https://github.com/Naporing/microseismic-monitor-qt/releases/download/v1.2.0/SeismicWaveforms-Setup-v1.2.0.exe"));
+        QCOMPARE(release.checksumUrl, QUrl(release.installerUrl.toString() + ".sha256"));
+    }
+
+    void rejectsUntrustedReleasePageRedirect()
+    {
+        FakeNetwork network;
+        network.responses.enqueue({{}, 403, QNetworkReply::ContentAccessDenied, {}, "0"});
+        network.responses.enqueue({{}, 302, QNetworkReply::NoError, QUrl("https://example.com/releases/tag/v1.2.0")});
+        UpdateManager manager(nullptr, &network);
+        QSignalSpy available(&manager, &UpdateManager::updateAvailable);
+        QSignalSpy failures(&manager, &UpdateManager::failed);
+        manager.checkForUpdates();
+        QTRY_COMPARE(failures.size(), 1);
+        QCOMPARE(network.requests.size(), 2);
+        QCOMPARE(available.size(), 0);
+    }
+
+    void releasePageCanReportCurrentVersion()
+    {
+        FakeNetwork network;
+        network.responses.enqueue({{}, 403, QNetworkReply::ContentAccessDenied, {}, "0"});
+        network.responses.enqueue({{}, 302, QNetworkReply::NoError,
+                                   QUrl("https://github.com/Naporing/microseismic-monitor-qt/releases/tag/v1.0.1")});
+        UpdateManager manager(nullptr, &network);
+        QSignalSpy current(&manager, &UpdateManager::upToDate);
+        manager.checkForUpdates();
+        QTRY_COMPARE(current.size(), 1);
+        QCOMPARE(network.requests.size(), 2);
+    }
+
+    void doesNotFallBackForOtherForbiddenResponses()
+    {
+        FakeNetwork network;
+        network.responses.enqueue({{}, 403, QNetworkReply::ContentAccessDenied});
+        UpdateManager manager(nullptr, &network);
+        QSignalSpy failures(&manager, &UpdateManager::failed);
+        manager.checkForUpdates();
+        QTRY_COMPARE(failures.size(), 1);
+        QCOMPARE(network.requests.size(), 1);
+    }
+
     void downloadsVerifiesAndCancels()
     {
         const QByteArray bytes(100000, 'x');

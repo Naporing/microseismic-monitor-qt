@@ -12,6 +12,7 @@ struct FakeResponse
     int status = 200;
     QNetworkReply::NetworkError error = QNetworkReply::NoError;
     QUrl redirect;
+    QByteArray rateLimitRemaining;
 };
 
 class FakeReply : public QNetworkReply
@@ -23,11 +24,17 @@ public:
         setRequest(request);
         setUrl(request.url());
         setAttribute(QNetworkRequest::HttpStatusCodeAttribute, this->response.status);
+        if (!this->response.redirect.isEmpty())
+            setAttribute(QNetworkRequest::RedirectionTargetAttribute, this->response.redirect);
+        if (!this->response.rateLimitRemaining.isEmpty())
+            setRawHeader("X-RateLimit-Remaining", this->response.rateLimitRemaining);
         open(QIODevice::ReadOnly);
         QTimer::singleShot(0, this, [this] {
             if (isFinished())
                 return;
-            if (!response.redirect.isEmpty())
+            if (!response.redirect.isEmpty()
+                && this->request().attribute(QNetworkRequest::RedirectPolicyAttribute).toInt()
+                    != QNetworkRequest::ManualRedirectPolicy)
             {
                 emit redirected(response.redirect);
                 return;
@@ -78,10 +85,12 @@ class FakeNetwork : public QNetworkAccessManager
 public:
     QQueue<FakeResponse> responses;
     QList<QNetworkRequest> requests;
+    QList<Operation> operations;
 
 protected:
-    QNetworkReply *createRequest(Operation, const QNetworkRequest &request, QIODevice *) override
+    QNetworkReply *createRequest(Operation operation, const QNetworkRequest &request, QIODevice *) override
     {
+        operations.append(operation);
         requests.append(request);
         const auto response = responses.isEmpty()
             ? FakeResponse{{}, 503, QNetworkReply::ServiceUnavailableError, {}}

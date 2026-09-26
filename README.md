@@ -6,7 +6,7 @@ Qt 6 / C++17 的 100 路波形演示程序。包含持续正弦测试、地震�
 
 支持 Windows 10/11 x64。从 [GitHub Releases](https://github.com/Naporing/microseismic-monitor-qt/releases) 下载 `SeismicWaveforms-Setup-vX.Y.Z.exe` 并安装。安装位置默认是 `%LOCALAPPDATA%\Programs\SeismicWaveformsDemo`，无需管理员权限，支持开始菜单启动和 Windows 设置中的卸载。
 
-点击顶部“检查更新”，确认“立即更新”后，软件会下载、校验、静默安装并重启。下载中可取消，网络错误不影响采集。程序启动 5 秒后也会检查一次，检查失败不弹窗。首次正式发布前，手动检查会提示尚未找到公开版本。
+点击顶部“检查更新”，确认“立即更新”后，软件会下载、校验、静默安装并重启。下载中可取消，网络错误不影响采集。程序启动 5 秒后也会检查一次，检查失败不弹窗。GitHub 匿名 API 额度用尽时会从公开 Release 页面读取最新版本。首次正式发布前，手动检查会提示尚未找到公开版本。
 
 更新安装器在临时目录保存，失败或取消的下载会清理；交给安装器执行的文件保留，超过 7 天后由后续启动清理。安装器可用 `/LOG` 日志排查，默认位于 `%TEMP%`。如果静默安装未完成，可重新运行当前版本或从 Releases 下载完整安装器。
 
@@ -29,13 +29,13 @@ ctest --test-dir build --output-on-failure
 ## 生成安装包
 
 ```powershell
-./scripts/package-windows.ps1 -Version 1.0.0 -IsccPath 'C:\Program Files\Inno Setup 7\ISCC.exe'
+./scripts/package-windows.ps1 -Version 1.0.1 -IsccPath 'C:\Program Files\Inno Setup 7\ISCC.exe'
 ```
 
 版本必须与 `CMakeLists.txt` 中的项目版本一致。脚本使用独立的 `build/package-release` Release 构建，将 Qt DLL、平台插件和 Windows TLS 插件部署到 `dist/windows`，再生成：
 
-- `dist/release/SeismicWaveforms-Setup-v1.0.0.exe`
-- `dist/release/SeismicWaveforms-Setup-v1.0.0.exe.sha256`
+- `dist/release/SeismicWaveforms-Setup-v1.0.1.exe`
+- `dist/release/SeismicWaveforms-Setup-v1.0.1.exe.sha256`
 
 打包会重建脚本专用的 `dist/windows` 部署目录，请勿在其中保存手动文件。可以用 `-ValidateOnly -DeploymentDirectory <已部署目录>` 检查打包输入。需要显式路径时支持 `-QtRoot`、`-CMakePath`、`-IsccPath`。未来代码签名应加在安装器生成后、计算 SHA-256 之前。
 
@@ -64,7 +64,7 @@ git push origin v1.0.1
 可先运行临时安装检查（若当前用户已有本软件安装，脚本会拒绝执行）：
 
 ```powershell
-./scripts/test-windows-installer.ps1 -InstallerPath ./dist/release/SeismicWaveforms-Setup-v1.0.0.exe
+./scripts/test-windows-installer.ps1 -InstallerPath ./dist/release/SeismicWaveforms-Setup-v1.0.1.exe
 ```
 
 该脚本在项目 `build` 的独立目录安装，清空 Qt 开发环境路径后检查实际加载的 DLL，再卸载测试副本；日志保留在该目录。它不替代干净 Windows 用户和在线升级测试。
@@ -72,7 +72,7 @@ git push origin v1.0.1
 - 在没有 Qt 开发环境的普通 Windows 用户账户首次安装，确认无提权、开始菜单可启动。
 - 查看 100 路波形，切换正弦频率，打开 FFT 底部详情。
 - 取消下载、断网后继续采集；手动检查失败应显示错误。
-- 先安装 v1.0.0，再发布获准的 v1.0.1，从软件内确认更新，验证自动安装、只重启一次且显示 v1.0.1。
+- 先安装 v1.0.0，再发布 v1.0.1，从软件内确认更新，验证自动安装、只重启一次且显示 v1.0.1。若旧版受 GitHub API 限流，可先切换网络完成这次更新；手动安装 v1.0.1 后，需再发布更高版本才能测试新版的备用查询路径。
 - 从 Windows 设置卸载，确认程序和快捷方式移除。
 
 首次 GitHub 工作流运行、干净用户安装和跨版本在线升级仍需实际执行后才能标记通过。

@@ -65,6 +65,7 @@ private:
     QPointer<QNetworkReply> m_reply;
     State m_state = State::Idle;
     bool m_silent = false;
+    bool m_checkingReleasePage = false;
     QString m_downloadRoot;
     ReleaseInfo m_release;
     std::unique_ptr<QTemporaryDir> m_directory;
