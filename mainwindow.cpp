@@ -473,7 +473,7 @@ MainWindow::MainWindow(QWidget *parent, UpdateManager *updates, InstallerLaunche
     headingLayout->setSpacing(0);
     auto *eyebrow = new QLabel("MICROSEISMIC LAB  /  100-CHANNEL RECORDER");
     eyebrow->setObjectName("eyebrow");
-    auto *heading = new QLabel("阵列信号采集仪");
+    auto *heading = new QLabel("三分量地震数据管理软件");
     heading->setObjectName("pageTitle");
     auto *subtitle = new QLabel("实时记录  ·  统一时钟  ·  5.0 秒观测窗");
     subtitle->setObjectName("subtitle");
